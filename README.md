@@ -158,6 +158,7 @@ docker compose up --build
 Tools de gestion de credenciales:
 
 - `upsert_user_plane_credentials(user_id, plane_base_url, plane_api_token, plane_workspace_slug, plane_project_id=None)`
+- `connect_user_plane_account(user_id, plane_base_url, plane_api_token, plane_workspace_slug)`
 - `connect_user_to_server_plane_credentials(user_id)`
 - `delete_user_plane_credentials(user_id)`
 - `list_connected_users()`

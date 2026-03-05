@@ -478,6 +478,24 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         )
 
     @app.tool()
+    def connect_user_plane_account(
+        user_id: str,
+        plane_base_url: str,
+        plane_api_token: str,
+        plane_workspace_slug: str,
+    ) -> dict[str, str]:
+        """Connect Plane account without fixed project_id (workspace-wide)."""
+        if not enable_multi_tenant:
+            raise ValueError("MCP_MULTI_TENANT=false. Enable it to manage per-user credentials.")
+        return credentials_store.upsert_plane_credentials(
+            user_id=user_id,
+            base_url=plane_base_url,
+            workspace_slug=plane_workspace_slug,
+            project_id=None,
+            api_token=plane_api_token,
+        )
+
+    @app.tool()
     def connect_user_to_server_plane_credentials(user_id: str) -> dict[str, str]:
         """Connect a user to Plane credentials already configured in server env (no token in tool args)."""
         if not enable_multi_tenant:
