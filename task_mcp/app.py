@@ -199,7 +199,6 @@ def create_service(tasks_file: Path | None = None) -> TaskService | PlaneTaskSer
 def create_app(tasks_file: Path | None = None) -> FastMCP:
     default_service = create_service(tasks_file=tasks_file)
     enable_multi_tenant = _is_truthy(os.getenv("MCP_MULTI_TENANT"))
-    use_server_plane_credentials_for_users = _is_truthy(os.getenv("MCP_MULTI_TENANT_USE_SERVER_PLANE_CREDENTIALS"))
     server_plane_credentials = _get_plane_env_credentials(required=False)
 
     data_dir = _resolve_data_dir()
@@ -210,14 +209,21 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         if enable_multi_tenant:
             if not user_id or not user_id.strip():
                 raise ValueError("user_id is required when MCP_MULTI_TENANT=true")
-            credentials = credentials_store.get_plane_credentials(user_id.strip())
-            if not credentials and use_server_plane_credentials_for_users and server_plane_credentials:
-                credentials = server_plane_credentials
+            cleaned_user_id = user_id.strip()
+            credentials = credentials_store.get_plane_credentials(cleaned_user_id)
+            if not credentials and server_plane_credentials:
+                credentials_store.upsert_plane_credentials(
+                    user_id=cleaned_user_id,
+                    base_url=server_plane_credentials["base_url"],
+                    workspace_slug=server_plane_credentials["workspace_slug"],
+                    project_id=server_plane_credentials.get("project_id"),
+                    api_token=server_plane_credentials["api_token"],
+                )
+                credentials = credentials_store.get_plane_credentials(cleaned_user_id)
             if not credentials:
                 raise ValueError(
                     f"No Plane credentials found for user_id={user_id}. "
-                    "First connect with connect_user_plane_quick(user_id, plane_workspace_slug, plane_api_token) "
-                    "or connect_user_plane_account(...)."
+                    "First connect with connect_user_plane_quick(user_id, plane_workspace_slug, plane_api_token)."
                 )
             return _create_plane_service(
                 base_url=credentials["base_url"],
@@ -455,48 +461,6 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         service = resolve_service(user_id=user_id)
         text_updater = NaturalTextUpdater(service)
         return text_updater.update(text=text, actor=actor)
-
-    @app.tool()
-    def upsert_user_plane_credentials(
-        user_id: str,
-        plane_base_url: str,
-        plane_api_token: str,
-        plane_workspace_slug: str,
-        plane_project_id: str | None = None,
-    ) -> dict[str, str]:
-        """Save/update encrypted Plane credentials for a user."""
-        if not enable_multi_tenant:
-            raise ValueError("MCP_MULTI_TENANT=false. Enable it to manage per-user credentials.")
-        return credentials_store.upsert_plane_credentials(
-            user_id=user_id,
-            base_url=plane_base_url,
-            workspace_slug=plane_workspace_slug,
-            project_id=plane_project_id,
-            api_token=plane_api_token,
-        )
-
-    @app.tool()
-    def connect_user_plane_account(
-        user_id: str,
-        plane_api_token: str,
-        plane_workspace_slug: str,
-        plane_base_url: str | None = None,
-    ) -> dict[str, str]:
-        """Connect Plane account without fixed project_id (workspace-wide)."""
-        if not enable_multi_tenant:
-            raise ValueError("MCP_MULTI_TENANT=false. Enable it to manage per-user credentials.")
-        resolved_base_url = (
-            plane_base_url.strip()
-            if isinstance(plane_base_url, str) and plane_base_url.strip()
-            else _default_plane_base_url()
-        )
-        return credentials_store.upsert_plane_credentials(
-            user_id=user_id,
-            base_url=resolved_base_url,
-            workspace_slug=plane_workspace_slug,
-            project_id=None,
-            api_token=plane_api_token,
-        )
 
     @app.tool()
     def connect_user_plane_quick(

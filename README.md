@@ -75,7 +75,7 @@ Para despliegue, usa este modo:
 
 1. `MCP_MULTI_TENANT=true`
 2. `MCP_CREDENTIALS_KEY=<fernet_key>`
-3. Registrar credenciales por usuario con `upsert_user_plane_credentials(...)`
+3. Registrar credenciales por usuario con `connect_user_plane_quick(...)`
 4. Ejecutar tools de tareas con `user_id`
 
 Con este flujo no envias token en cada tool de tareas.
@@ -85,7 +85,7 @@ Con este flujo no envias token en cada tool de tareas.
 Si tu cliente bloquea enviar `plane_api_token` en llamadas MCP, puedes evitarlo usando solo variables de entorno del servidor:
 
 1. Configura en el servidor: `PLANE_BASE_URL`, `PLANE_API_TOKEN`, `PLANE_WORKSPACE_SLUG` (`PLANE_PROJECT_ID` opcional)
-2. Activa `MCP_MULTI_TENANT_USE_SERVER_PLANE_CREDENTIALS=true` para fallback automatico por usuario
+2. El servidor aplicara fallback automatico con esas credenciales para usuarios nuevos
 3. Opcional: conecta un usuario sin enviar token con `connect_user_to_server_plane_credentials(user_id)`
 
 ### Mini interfaz web para registrar token de Plane
@@ -134,18 +134,18 @@ docker compose up --build
 ## Herramientas MCP expuestas
 
 - `create_task(..., start_date=None, due_date=None, project_id=None, user_id=None)`
-- `list_tasks(..., user_id=None)`
-- `get_task(task_id, user_id=None)`
-- `update_task_status(..., user_id=None)`
-- `update_task_dates(task_id, start_date=None, due_date=None, user_id=None)`
-- `assign_task(..., user_id=None)`
-- `add_comment(..., user_id=None)`
+- `list_tasks(..., project_id=None, user_id=None)`
+- `get_task(task_id, project_id=None, user_id=None)`
+- `update_task_status(..., project_id=None, user_id=None)`
+- `update_task_dates(task_id, start_date=None, due_date=None, project_id=None, user_id=None)`
+- `assign_task(..., project_id=None, user_id=None)`
+- `add_comment(..., project_id=None, user_id=None)`
 - `update_from_natural_text(..., user_id=None)`
-- `list_plane_states(user_id=None)`
+- `list_plane_states(project_id=None, user_id=None)`
 - `list_plane_projects(limit=200, user_id=None)`
 - `list_plane_members(limit=200, user_id=None)`
 - `list_plane_users(query=None, limit=200, user_id=None)`
-- `list_plane_labels(limit=200, user_id=None)`
+- `list_plane_labels(limit=200, project_id=None, user_id=None)`
 - `create_plane_label(name, color=None, project_id=None, user_id=None)`
 - `set_task_labels(task_id, label_ids=None, label_names=None, project_id=None, user_id=None)`
 - `list_plane_cycles(limit=200, project_id=None, user_id=None)`
@@ -157,8 +157,6 @@ docker compose up --build
 
 Tools de gestion de credenciales:
 
-- `upsert_user_plane_credentials(user_id, plane_base_url, plane_api_token, plane_workspace_slug, plane_project_id=None)`
-- `connect_user_plane_account(user_id, plane_api_token, plane_workspace_slug, plane_base_url=None)`
 - `connect_user_plane_quick(user_id, plane_workspace_slug, plane_api_token)`
 - `connect_user_to_server_plane_credentials(user_id)`
 
