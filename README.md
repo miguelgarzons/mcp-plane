@@ -144,6 +144,7 @@ docker compose up --build
 - `list_plane_states(user_id=None)`
 - `list_plane_projects(limit=200, user_id=None)`
 - `list_plane_members(limit=200, user_id=None)`
+- `list_plane_users(query=None, limit=200, user_id=None)`
 - `list_plane_labels(limit=200, user_id=None)`
 - `create_plane_label(name, color=None, project_id=None, user_id=None)`
 - `set_task_labels(task_id, label_ids=None, label_names=None, project_id=None, user_id=None)`
@@ -151,6 +152,7 @@ docker compose up --build
 - `set_task_cycle(task_id, cycle_id=None, project_id=None, user_id=None)`
 - `search_tasks(query=None, status=None, assignee=None, start_date_from=None, start_date_to=None, due_date_from=None, due_date_to=None, limit=50, project_id=None, user_id=None)`
 - `bulk_update_tasks(task_ids, new_status=None, assignee=None, start_date=None, due_date=None, label_ids=None, project_id=None, user_id=None)`
+- `assign_task_to_plane_user(task_id, assignee, project_id=None, actor="mcp-bot", user_id=None)`
 - `plane_agent(command, user_id=None, actor="mcp-bot")`
 
 Tools de gestion de credenciales:

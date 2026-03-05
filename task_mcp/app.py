@@ -420,6 +420,20 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         return service.assign_task(task_id=task_id, assignee=assignee, actor=actor)
 
     @app.tool()
+    def assign_task_to_plane_user(
+        task_id: str,
+        assignee: str,
+        project_id: str | None = None,
+        actor: str = "mcp-bot",
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Assign a task manually to a selected Plane user (email/name/id)."""
+        service = resolve_service(user_id=user_id)
+        if isinstance(service, PlaneTaskService):
+            return service.assign_task(task_id=task_id, assignee=assignee, actor=actor, project_id=project_id)
+        return service.assign_task(task_id=task_id, assignee=assignee, actor=actor)
+
+    @app.tool()
     def add_comment(
         task_id: str,
         comment: str,
@@ -512,6 +526,16 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         """List workspace members that can be assigned."""
         service = resolve_plane_service(user_id=user_id)
         return service.list_members(limit=limit)
+
+    @app.tool()
+    def list_plane_users(
+        query: str | None = None,
+        limit: int = 200,
+        user_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """List/filter Plane users for manual task assignment."""
+        service = resolve_plane_service(user_id=user_id)
+        return service.list_assignable_users(query=query, limit=limit)
 
     @app.tool()
     def list_plane_labels(

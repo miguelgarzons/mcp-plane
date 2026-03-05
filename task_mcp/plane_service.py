@@ -490,6 +490,18 @@ class PlaneTaskService:
             )
         return normalized[: max(1, min(limit, 500))]
 
+    def list_assignable_users(self, query: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
+        members = self.list_members(limit=500)
+        if query and query.strip():
+            needle = query.strip().lower()
+            members = [
+                member
+                for member in members
+                if needle in str(member.get("email", "")).lower()
+                or needle in str(member.get("display_name", "")).lower()
+            ]
+        return members[: max(1, min(limit, 500))]
+
     def search_tasks(
         self,
         query: str | None = None,
