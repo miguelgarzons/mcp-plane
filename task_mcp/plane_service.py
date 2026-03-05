@@ -51,7 +51,48 @@ class PlaneTaskService:
     def _extract_state_group(state: dict[str, Any] | None) -> str:
         if not isinstance(state, dict):
             return ""
-        return PlaneTaskService._normalize(state.get("group") or state.get("type") or state.get("state_group"))
+        raw_group = state.get("group") or state.get("type") or state.get("state_group")
+        if isinstance(raw_group, dict):
+            raw_group = raw_group.get("name") or raw_group.get("key") or raw_group.get("value")
+        return PlaneTaskService._normalize(raw_group)
+
+    @staticmethod
+    def _map_status_from_name_group(name: str, group: str) -> Status | None:
+        if name in {"backlog", "unstarted"}:
+            return "backlog"
+        if name in {"todo", "to do", "por hacer", "por_hacer"}:
+            return "todo"
+        if name in {"in progress", "started", "active", "doing", "ejecutando"}:
+            return "in_progress"
+        if name in {"done", "completed", "closed"}:
+            return "done"
+        if name in {"cancelled", "canceled", "cancelado"}:
+            return "cancelled"
+        if name == "blocked":
+            return "blocked"
+
+        if group == "backlog":
+            return "backlog"
+        if group == "unstarted":
+            return "todo"
+        if group == "started":
+            return "in_progress"
+        if group == "completed":
+            return "done"
+        if group in {"cancelled", "canceled"}:
+            return "cancelled"
+        return None
+
+    def _resolve_status_from_state_id(self, state_id: str) -> Status | None:
+        payload = self._request("GET", self._states_path())
+        states = self._safe_results(payload)
+        for state in states:
+            if str(state.get("id", "")).strip() != state_id.strip():
+                continue
+            name = self._normalize(state.get("name"))
+            group = self._extract_state_group(state)
+            return self._map_status_from_name_group(name, group)
+        return None
 
     @staticmethod
     def _safe_results(payload: Any) -> list[dict[str, Any]]:
@@ -106,44 +147,27 @@ class PlaneTaskService:
             if group in desired_groups and state.get("id"):
                 return state["id"]
 
-        if states and states[0].get("id"):
-            return states[0]["id"]
-
-        raise ValueError("Could not resolve Plane state id")
+        available = [
+            f"{self._normalize(s.get('name'))}|group={self._extract_state_group(s)}"
+            for s in states
+            if s.get("id")
+        ]
+        raise ValueError(f"Could not resolve Plane state id for '{status}'. Available states: {available}")
 
     @staticmethod
     def _map_priority(priority: Priority) -> str:
         return priority
 
-    @staticmethod
-    def _from_plane_issue(issue: dict[str, Any]) -> dict[str, Any]:
+    def _from_plane_issue(self, issue: dict[str, Any]) -> dict[str, Any]:
         state = issue.get("state")
-        state_name = PlaneTaskService._normalize(state.get("name") if isinstance(state, dict) else "")
-        state_group = PlaneTaskService._extract_state_group(state if isinstance(state, dict) else None)
+        state_name = self._normalize(state.get("name") if isinstance(state, dict) else "")
+        state_group = self._extract_state_group(state if isinstance(state, dict) else None)
 
-        status: Status = "backlog"
-        if state_name in {"backlog", "unstarted"}:
+        status = self._map_status_from_name_group(state_name, state_group)
+        if not status and isinstance(state, str) and state.strip():
+            status = self._resolve_status_from_state_id(state)
+        if not status:
             status = "backlog"
-        elif state_name in {"todo", "to do", "por hacer", "por_hacer"}:
-            status = "todo"
-        elif state_name in {"in progress", "started", "active", "doing", "ejecutando"}:
-            status = "in_progress"
-        elif state_name in {"done", "completed", "closed"}:
-            status = "done"
-        elif state_name in {"cancelled", "canceled", "cancelado"}:
-            status = "cancelled"
-        elif state_name == "blocked":
-            status = "blocked"
-        elif state_group == "backlog":
-            status = "backlog"
-        elif state_group == "unstarted":
-            status = "todo"
-        elif state_group == "started":
-            status = "in_progress"
-        elif state_group == "completed":
-            status = "done"
-        elif state_group in {"cancelled", "canceled"}:
-            status = "cancelled"
 
         assignee = None
         assignees = issue.get("assignees")
