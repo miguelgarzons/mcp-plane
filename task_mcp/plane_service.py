@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 import requests
@@ -114,6 +115,15 @@ class PlaneTaskService:
     def _comments_path(self, issue_id: str) -> str:
         return f"{self._issue_path(issue_id)}comments/"
 
+    def _labels_path(self) -> str:
+        return f"/api/v1/workspaces/{self.workspace_slug}/projects/{self.project_id}/labels/"
+
+    def _cycles_path(self) -> str:
+        return f"/api/v1/workspaces/{self.workspace_slug}/projects/{self.project_id}/cycles/"
+
+    def _members_path(self) -> str:
+        return f"/api/v1/workspaces/{self.workspace_slug}/members/"
+
     def _resolve_state_id(self, status: Status) -> str:
         payload = self._request("GET", self._states_path())
         states = self._safe_results(payload)
@@ -158,6 +168,23 @@ class PlaneTaskService:
     def _map_priority(priority: Priority) -> str:
         return priority
 
+    @staticmethod
+    def _extract_labels(issue: dict[str, Any]) -> list[dict[str, Any]]:
+        raw_labels = issue.get("labels")
+        if not isinstance(raw_labels, list):
+            return []
+        labels: list[dict[str, Any]] = []
+        for label in raw_labels:
+            if isinstance(label, dict) and label.get("id"):
+                labels.append(
+                    {
+                        "id": label.get("id"),
+                        "name": label.get("name", ""),
+                        "color": label.get("color"),
+                    }
+                )
+        return labels
+
     def _from_plane_issue(self, issue: dict[str, Any]) -> dict[str, Any]:
         state = issue.get("state")
         state_name = self._normalize(state.get("name") if isinstance(state, dict) else "")
@@ -185,6 +212,8 @@ class PlaneTaskService:
             "assignee": assignee,
             "start_date": issue.get("start_date"),
             "due_date": issue.get("target_date") or issue.get("due_date"),
+            "labels": self._extract_labels(issue),
+            "cycle_id": issue.get("cycle_id") or issue.get("cycle"),
             "created_at": issue.get("created_at"),
             "updated_at": issue.get("updated_at"),
             "external": issue,
@@ -284,3 +313,212 @@ class PlaneTaskService:
         }
         issue = self._request("PATCH", self._issue_path(task_id.strip()), json_payload=payload)
         return self._from_plane_issue(issue)
+
+    def list_states(self) -> list[dict[str, Any]]:
+        payload = self._request("GET", self._states_path())
+        states = self._safe_results(payload)
+        return [
+            {
+                "id": state.get("id"),
+                "name": state.get("name", ""),
+                "group": self._extract_state_group(state),
+            }
+            for state in states
+            if state.get("id")
+        ]
+
+    def list_labels(self, limit: int = 200) -> list[dict[str, Any]]:
+        payload = self._request("GET", self._labels_path())
+        labels = self._safe_results(payload)
+        normalized = [
+            {
+                "id": label.get("id"),
+                "name": label.get("name", ""),
+                "color": label.get("color"),
+            }
+            for label in labels
+            if label.get("id")
+        ]
+        return normalized[: max(1, min(limit, 500))]
+
+    def create_label(self, name: str, color: str | None = None) -> dict[str, Any]:
+        payload: dict[str, Any] = {"name": name.strip()}
+        if isinstance(color, str) and color.strip():
+            payload["color"] = color.strip()
+        label = self._request("POST", self._labels_path(), json_payload=payload)
+        return {
+            "id": label.get("id"),
+            "name": label.get("name", ""),
+            "color": label.get("color"),
+        }
+
+    def _resolve_label_ids(self, label_ids: list[str] | None = None, label_names: list[str] | None = None) -> list[str]:
+        resolved: set[str] = set()
+        if label_ids:
+            for label_id in label_ids:
+                cleaned = str(label_id).strip()
+                if cleaned:
+                    resolved.add(cleaned)
+
+        if label_names:
+            names = {self._normalize(name) for name in label_names if isinstance(name, str) and name.strip()}
+            if names:
+                labels = self.list_labels(limit=500)
+                for label in labels:
+                    if self._normalize(label.get("name")) in names and label.get("id"):
+                        resolved.add(str(label["id"]))
+                missing = names - {self._normalize(label.get("name")) for label in labels}
+                if missing:
+                    raise ValueError(f"Label names not found: {sorted(missing)}")
+
+        return sorted(resolved)
+
+    def set_task_labels(
+        self,
+        task_id: str,
+        label_ids: list[str] | None = None,
+        label_names: list[str] | None = None,
+    ) -> dict[str, Any]:
+        resolved_label_ids = self._resolve_label_ids(label_ids=label_ids, label_names=label_names)
+        issue = self._request(
+            "PATCH",
+            self._issue_path(task_id.strip()),
+            json_payload={"label_ids": resolved_label_ids},
+        )
+        return self._from_plane_issue(issue)
+
+    def list_cycles(self, limit: int = 200) -> list[dict[str, Any]]:
+        payload = self._request("GET", self._cycles_path())
+        cycles = self._safe_results(payload)
+        normalized = [
+            {
+                "id": cycle.get("id"),
+                "name": cycle.get("name", ""),
+                "start_date": cycle.get("start_date"),
+                "end_date": cycle.get("end_date"),
+            }
+            for cycle in cycles
+            if cycle.get("id")
+        ]
+        return normalized[: max(1, min(limit, 500))]
+
+    def set_task_cycle(self, task_id: str, cycle_id: str | None = None) -> dict[str, Any]:
+        payload: dict[str, Any] = {"cycle_id": cycle_id.strip() if isinstance(cycle_id, str) and cycle_id.strip() else None}
+        issue = self._request("PATCH", self._issue_path(task_id.strip()), json_payload=payload)
+        return self._from_plane_issue(issue)
+
+    def list_members(self, limit: int = 200) -> list[dict[str, Any]]:
+        payload = self._request("GET", self._members_path())
+        members = self._safe_results(payload)
+        normalized: list[dict[str, Any]] = []
+        for member in members:
+            if not isinstance(member, dict):
+                continue
+            user = member.get("member") if isinstance(member.get("member"), dict) else member
+            if not isinstance(user, dict):
+                continue
+            normalized.append(
+                {
+                    "id": user.get("id"),
+                    "email": user.get("email"),
+                    "display_name": user.get("display_name") or user.get("first_name"),
+                }
+            )
+        return normalized[: max(1, min(limit, 500))]
+
+    def search_tasks(
+        self,
+        query: str | None = None,
+        status: Status | None = None,
+        assignee: str | None = None,
+        start_date_from: str | None = None,
+        start_date_to: str | None = None,
+        due_date_from: str | None = None,
+        due_date_to: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        tasks = self.list_tasks(status=status, assignee=assignee, limit=500)
+        filtered = tasks
+
+        if query and query.strip():
+            needle = query.strip().lower()
+            filtered = [
+                task
+                for task in filtered
+                if needle in str(task.get("title", "")).lower() or needle in str(task.get("description", "")).lower()
+            ]
+
+        def _in_range(value: str | None, min_date: str | None, max_date: str | None) -> bool:
+            if not value:
+                return False if (min_date or max_date) else True
+            try:
+                current = date.fromisoformat(value)
+            except ValueError:
+                return False
+            if min_date:
+                try:
+                    if current < date.fromisoformat(min_date):
+                        return False
+                except ValueError:
+                    pass
+            if max_date:
+                try:
+                    if current > date.fromisoformat(max_date):
+                        return False
+                except ValueError:
+                    pass
+            return True
+
+        filtered = [
+            task
+            for task in filtered
+            if _in_range(task.get("start_date"), start_date_from, start_date_to)
+            and _in_range(task.get("due_date"), due_date_from, due_date_to)
+        ]
+
+        return filtered[: max(1, min(limit, 500))]
+
+    def bulk_update_tasks(
+        self,
+        task_ids: list[str],
+        new_status: Status | None = None,
+        assignee: str | None = None,
+        start_date: str | None = None,
+        due_date: str | None = None,
+        label_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        updated: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+        state_id = self._resolve_state_id(new_status) if new_status else None
+        resolved_labels = self._resolve_label_ids(label_ids=label_ids, label_names=None) if label_ids is not None else None
+
+        for raw_task_id in task_ids:
+            task_id = str(raw_task_id).strip()
+            if not task_id:
+                continue
+            payload: dict[str, Any] = {}
+            if state_id:
+                payload["state"] = state_id
+            if assignee and assignee.strip():
+                payload["assignee_names"] = [assignee.strip()]
+            if start_date is not None:
+                payload["start_date"] = start_date.strip() if isinstance(start_date, str) and start_date.strip() else None
+            if due_date is not None:
+                payload["target_date"] = due_date.strip() if isinstance(due_date, str) and due_date.strip() else None
+            if resolved_labels is not None:
+                payload["label_ids"] = resolved_labels
+            if not payload:
+                errors.append({"task_id": task_id, "error": "No fields to update"})
+                continue
+            try:
+                issue = self._request("PATCH", self._issue_path(task_id), json_payload=payload)
+                updated.append(self._from_plane_issue(issue))
+            except Exception as exc:  # noqa: BLE001
+                errors.append({"task_id": task_id, "error": str(exc)})
+
+        return {
+            "updated": updated,
+            "updated_count": len(updated),
+            "errors": errors,
+            "error_count": len(errors),
+        }

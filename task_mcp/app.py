@@ -112,6 +112,12 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
             )
         return default_service
 
+    def resolve_plane_service(user_id: str | None = None) -> PlaneTaskService:
+        service = resolve_service(user_id=user_id)
+        if not isinstance(service, PlaneTaskService):
+            raise ValueError("This tool requires Plane mode. Enable MCP_USE_PLANE=true or MCP_MULTI_TENANT=true.")
+        return service
+
     app = FastMCP("plane-local-tasks")
 
     @app.tool()
@@ -251,6 +257,104 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
             raise ValueError("MCP_MULTI_TENANT=false. Enable it to manage per-user credentials.")
         users = credentials_store.list_users()
         return {"users": users, "count": len(users)}
+
+    @app.tool()
+    def list_plane_states(user_id: str | None = None) -> list[dict[str, Any]]:
+        """List available states configured in Plane project."""
+        service = resolve_plane_service(user_id=user_id)
+        return service.list_states()
+
+    @app.tool()
+    def list_plane_members(limit: int = 200, user_id: str | None = None) -> list[dict[str, Any]]:
+        """List workspace members that can be assigned."""
+        service = resolve_plane_service(user_id=user_id)
+        return service.list_members(limit=limit)
+
+    @app.tool()
+    def list_plane_labels(limit: int = 200, user_id: str | None = None) -> list[dict[str, Any]]:
+        """List labels available in Plane project."""
+        service = resolve_plane_service(user_id=user_id)
+        return service.list_labels(limit=limit)
+
+    @app.tool()
+    def create_plane_label(name: str, color: str | None = None, user_id: str | None = None) -> dict[str, Any]:
+        """Create a new label in Plane project."""
+        service = resolve_plane_service(user_id=user_id)
+        return service.create_label(name=name, color=color)
+
+    @app.tool()
+    def set_task_labels(
+        task_id: str,
+        label_ids: list[str] | None = None,
+        label_names: list[str] | None = None,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Set labels for a task by IDs or names."""
+        service = resolve_plane_service(user_id=user_id)
+        return service.set_task_labels(task_id=task_id, label_ids=label_ids, label_names=label_names)
+
+    @app.tool()
+    def list_plane_cycles(limit: int = 200, user_id: str | None = None) -> list[dict[str, Any]]:
+        """List cycles/sprints in Plane project."""
+        service = resolve_plane_service(user_id=user_id)
+        return service.list_cycles(limit=limit)
+
+    @app.tool()
+    def set_task_cycle(task_id: str, cycle_id: str | None = None, user_id: str | None = None) -> dict[str, Any]:
+        """Set or clear cycle/sprint for a task."""
+        service = resolve_plane_service(user_id=user_id)
+        return service.set_task_cycle(task_id=task_id, cycle_id=cycle_id)
+
+    @app.tool()
+    def search_tasks(
+        query: str | None = None,
+        status: Status | None = None,
+        assignee: str | None = None,
+        start_date_from: str | None = None,
+        start_date_to: str | None = None,
+        due_date_from: str | None = None,
+        due_date_to: str | None = None,
+        limit: int = 50,
+        user_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Search tasks by text, status, assignee and date ranges.
+
+        Dates should use YYYY-MM-DD format.
+        """
+        service = resolve_service(user_id=user_id)
+        if isinstance(service, PlaneTaskService):
+            return service.search_tasks(
+                query=query,
+                status=status,
+                assignee=assignee,
+                start_date_from=start_date_from,
+                start_date_to=start_date_to,
+                due_date_from=due_date_from,
+                due_date_to=due_date_to,
+                limit=limit,
+            )
+        return service.list_tasks(status=status, assignee=assignee, limit=limit)
+
+    @app.tool()
+    def bulk_update_tasks(
+        task_ids: list[str],
+        new_status: Status | None = None,
+        assignee: str | None = None,
+        start_date: str | None = None,
+        due_date: str | None = None,
+        label_ids: list[str] | None = None,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Bulk update tasks in Plane (status, assignee, dates, labels)."""
+        service = resolve_plane_service(user_id=user_id)
+        return service.bulk_update_tasks(
+            task_ids=task_ids,
+            new_status=new_status,
+            assignee=assignee,
+            start_date=start_date,
+            due_date=due_date,
+            label_ids=label_ids,
+        )
 
     return app
 

@@ -11,6 +11,8 @@ Servidor MCP en Python con FastMCP para gestionar tareas de desarrollo en modo l
 - Asignar tareas
 - Definir fecha de inicio y vencimiento (`start_date`, `due_date`)
 - Agregar comentarios
+- Gestion de labels, ciclos (sprints) y miembros de Plane
+- Busqueda avanzada y actualizaciones en lote
 - Actualizar tareas con texto natural en espanol
 - Modo backend local o Plane API real (por variables de entorno)
 - Modo multiusuario para despliegue (credenciales por usuario)
@@ -118,6 +120,15 @@ docker compose up --build
 - `assign_task(..., user_id=None)`
 - `add_comment(..., user_id=None)`
 - `update_from_natural_text(..., user_id=None)`
+- `list_plane_states(user_id=None)`
+- `list_plane_members(limit=200, user_id=None)`
+- `list_plane_labels(limit=200, user_id=None)`
+- `create_plane_label(name, color=None, user_id=None)`
+- `set_task_labels(task_id, label_ids=None, label_names=None, user_id=None)`
+- `list_plane_cycles(limit=200, user_id=None)`
+- `set_task_cycle(task_id, cycle_id=None, user_id=None)`
+- `search_tasks(query=None, status=None, assignee=None, start_date_from=None, start_date_to=None, due_date_from=None, due_date_to=None, limit=50, user_id=None)`
+- `bulk_update_tasks(task_ids, new_status=None, assignee=None, start_date=None, due_date=None, label_ids=None, user_id=None)`
 
 Tools de gestion de credenciales:
 
