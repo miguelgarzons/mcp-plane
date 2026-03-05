@@ -161,6 +161,11 @@ Tools de gestion de credenciales:
 - `connect_user_plane_account(user_id, plane_api_token, plane_workspace_slug, plane_base_url=None)`
 - `connect_user_plane_quick(user_id, plane_workspace_slug, plane_api_token)`
 - `connect_user_to_server_plane_credentials(user_id)`
+
+Primera conexion recomendada para clientes no tecnicos:
+
+- usar `connect_user_plane_quick` (solo pide `user_id`, `plane_workspace_slug`, `plane_api_token`)
+- luego usar `list_plane_projects` para escoger proyecto
 - `delete_user_plane_credentials(user_id)`
 - `list_connected_users()`
 

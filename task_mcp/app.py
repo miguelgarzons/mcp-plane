@@ -136,14 +136,11 @@ def _connect_form_html(
       <label for=\"user_id\">Usuario</label>
       <input id=\"user_id\" name=\"user_id\" required placeholder=\"correo@empresa.com\" value=\"{_v('user_id')}\" />
 
-      <label for=\"plane_base_url\">Plane Base URL</label>
-      <input id=\"plane_base_url\" name=\"plane_base_url\" required placeholder=\"https://proyectos.cunapp.pro\" value=\"{_v('plane_base_url')}\" />
+      <label for=\"plane_base_url\">Plane Base URL (opcional)</label>
+      <input id=\"plane_base_url\" name=\"plane_base_url\" placeholder=\"https://proyectos.cunapp.pro (si lo dejas vacio usa API por defecto)\" value=\"{_v('plane_base_url')}\" />
 
       <label for=\"plane_workspace_slug\">Workspace slug</label>
       <input id=\"plane_workspace_slug\" name=\"plane_workspace_slug\" required placeholder=\"fs\" value=\"{_v('plane_workspace_slug')}\" />
-
-      <label for=\"plane_project_id\">Project ID</label>
-      <input id=\"plane_project_id\" name=\"plane_project_id\" placeholder=\"uuid del proyecto (opcional)\" value=\"{_v('plane_project_id')}\" />
 
       <label for=\"plane_api_token\">API Token</label>
       <input id=\"plane_api_token\" name=\"plane_api_token\" type=\"password\" required placeholder=\"plane_api_xxx\" />
@@ -219,8 +216,8 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
             if not credentials:
                 raise ValueError(
                     f"No Plane credentials found for user_id={user_id}. "
-                    "Use upsert_user_plane_credentials or enable "
-                    "MCP_MULTI_TENANT_USE_SERVER_PLANE_CREDENTIALS=true with PLANE_* env vars."
+                    "First connect with connect_user_plane_quick(user_id, plane_workspace_slug, plane_api_token) "
+                    "or connect_user_plane_account(...)."
                 )
             return _create_plane_service(
                 base_url=credentials["base_url"],
@@ -255,7 +252,6 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
                     "user_id": str(params.get("user_id", "")),
                     "plane_base_url": str(params.get("plane_base_url", "")),
                     "plane_workspace_slug": str(params.get("plane_workspace_slug", "")),
-                    "plane_project_id": str(params.get("plane_project_id", "")),
                 },
             )
         )
@@ -276,26 +272,25 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         user_id = str(form.get("user_id", "")).strip()
         base_url = str(form.get("plane_base_url", "")).strip()
         workspace_slug = str(form.get("plane_workspace_slug", "")).strip()
-        project_id = str(form.get("plane_project_id", "")).strip()
         api_token = str(form.get("plane_api_token", "")).strip()
+        resolved_base_url = base_url or _default_plane_base_url()
 
-        if not all([user_id, base_url, workspace_slug, api_token]):
+        if not all([user_id, workspace_slug, api_token]):
             query = urlencode(
                 {
-                    "error": "Missing required fields",
+                    "error": "Missing required fields: user_id, workspace_slug, plane_api_token",
                     "user_id": user_id,
                     "plane_base_url": base_url,
                     "plane_workspace_slug": workspace_slug,
-                    "plane_project_id": project_id,
                 }
             )
             return RedirectResponse(f"/connect-plane?{query}", status_code=303)
 
         credentials_store.upsert_plane_credentials(
             user_id=user_id,
-            base_url=base_url,
+            base_url=resolved_base_url,
             workspace_slug=workspace_slug,
-            project_id=project_id,
+            project_id=None,
             api_token=api_token,
         )
 
@@ -303,9 +298,8 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
             {
                 "message": "Credenciales guardadas correctamente",
                 "user_id": user_id,
-                "plane_base_url": base_url,
+                "plane_base_url": resolved_base_url,
                 "plane_workspace_slug": workspace_slug,
-                "plane_project_id": project_id,
             }
         )
         return RedirectResponse(f"/connect-plane?{query}", status_code=303)
