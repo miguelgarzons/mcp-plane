@@ -44,6 +44,16 @@ class PlaneTaskService:
         return response.json()
 
     @staticmethod
+    def _normalize(value: Any) -> str:
+        return str(value or "").strip().lower().replace("_", " ")
+
+    @staticmethod
+    def _extract_state_group(state: dict[str, Any] | None) -> str:
+        if not isinstance(state, dict):
+            return ""
+        return PlaneTaskService._normalize(state.get("group") or state.get("type") or state.get("state_group"))
+
+    @staticmethod
     def _safe_results(payload: Any) -> list[dict[str, Any]]:
         if isinstance(payload, list):
             return payload
@@ -75,11 +85,25 @@ class PlaneTaskService:
             "cancelled": {"cancelled", "canceled", "cancelado"},
             "blocked": {"blocked"},
         }
+        desired_groups_by_status = {
+            "backlog": {"backlog"},
+            "todo": {"unstarted"},
+            "in_progress": {"started"},
+            "done": {"completed"},
+            "cancelled": {"cancelled", "canceled"},
+            "blocked": {"started"},
+        }
 
         candidates = desired_by_status[status]
         for state in states:
-            name = str(state.get("name", "")).strip().lower()
+            name = self._normalize(state.get("name"))
             if name in candidates and state.get("id"):
+                return state["id"]
+
+        desired_groups = desired_groups_by_status[status]
+        for state in states:
+            group = self._extract_state_group(state)
+            if group in desired_groups and state.get("id"):
                 return state["id"]
 
         if states and states[0].get("id"):
@@ -94,9 +118,8 @@ class PlaneTaskService:
     @staticmethod
     def _from_plane_issue(issue: dict[str, Any]) -> dict[str, Any]:
         state = issue.get("state")
-        state_name = ""
-        if isinstance(state, dict):
-            state_name = str(state.get("name", "")).strip().lower()
+        state_name = PlaneTaskService._normalize(state.get("name") if isinstance(state, dict) else "")
+        state_group = PlaneTaskService._extract_state_group(state if isinstance(state, dict) else None)
 
         status: Status = "backlog"
         if state_name in {"backlog", "unstarted"}:
@@ -111,6 +134,16 @@ class PlaneTaskService:
             status = "cancelled"
         elif state_name == "blocked":
             status = "blocked"
+        elif state_group == "backlog":
+            status = "backlog"
+        elif state_group == "unstarted":
+            status = "todo"
+        elif state_group == "started":
+            status = "in_progress"
+        elif state_group == "completed":
+            status = "done"
+        elif state_group in {"cancelled", "canceled"}:
+            status = "cancelled"
 
         assignee = None
         assignees = issue.get("assignees")
