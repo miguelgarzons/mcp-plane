@@ -71,6 +71,10 @@ def _get_plane_env_credentials(required: bool = False) -> dict[str, str] | None:
     return None
 
 
+def _default_plane_base_url() -> str:
+    return os.getenv("PLANE_BASE_URL", "").strip() or "https://api.plane.so"
+
+
 def _is_ui_authorized(request: Request, form_key: str | None = None) -> bool:
     required_key = os.getenv("MCP_CONNECT_UI_KEY", "").strip()
     if not required_key:
@@ -480,16 +484,41 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
     @app.tool()
     def connect_user_plane_account(
         user_id: str,
-        plane_base_url: str,
         plane_api_token: str,
         plane_workspace_slug: str,
+        plane_base_url: str | None = None,
     ) -> dict[str, str]:
         """Connect Plane account without fixed project_id (workspace-wide)."""
         if not enable_multi_tenant:
             raise ValueError("MCP_MULTI_TENANT=false. Enable it to manage per-user credentials.")
+        resolved_base_url = (
+            plane_base_url.strip()
+            if isinstance(plane_base_url, str) and plane_base_url.strip()
+            else _default_plane_base_url()
+        )
         return credentials_store.upsert_plane_credentials(
             user_id=user_id,
-            base_url=plane_base_url,
+            base_url=resolved_base_url,
+            workspace_slug=plane_workspace_slug,
+            project_id=None,
+            api_token=plane_api_token,
+        )
+
+    @app.tool()
+    def connect_user_plane_quick(
+        user_id: str,
+        plane_workspace_slug: str,
+        plane_api_token: str,
+    ) -> dict[str, str]:
+        """Quick first-time connection using only workspace slug + API token.
+
+        Base URL is inferred from PLANE_BASE_URL env or defaults to https://api.plane.so.
+        """
+        if not enable_multi_tenant:
+            raise ValueError("MCP_MULTI_TENANT=false. Enable it to manage per-user credentials.")
+        return credentials_store.upsert_plane_credentials(
+            user_id=user_id,
+            base_url=_default_plane_base_url(),
             workspace_slug=plane_workspace_slug,
             project_id=None,
             api_token=plane_api_token,
