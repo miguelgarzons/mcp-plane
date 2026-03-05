@@ -8,6 +8,7 @@ from typing import Any
 from cryptography.fernet import Fernet
 from fastmcp import FastMCP
 
+from .agent_router import PlaneAgentRouter
 from .credential_store import CredentialStore
 from .natural_language import NaturalTextUpdater
 from .plane_service import PlaneTaskService
@@ -40,6 +41,28 @@ def _get_credentials_key(required: bool) -> str:
     return Fernet.generate_key().decode("utf-8")
 
 
+def _get_plane_env_credentials(required: bool = False) -> dict[str, str] | None:
+    base_url = os.getenv("PLANE_BASE_URL", "").strip()
+    api_token = os.getenv("PLANE_API_TOKEN", "").strip()
+    workspace_slug = os.getenv("PLANE_WORKSPACE_SLUG", "").strip()
+    project_id = os.getenv("PLANE_PROJECT_ID", "").strip()
+
+    if all([base_url, api_token, workspace_slug, project_id]):
+        return {
+            "base_url": base_url,
+            "api_token": api_token,
+            "workspace_slug": workspace_slug,
+            "project_id": project_id,
+        }
+
+    if required:
+        raise ValueError(
+            "Missing Plane config in environment. Set PLANE_BASE_URL, PLANE_API_TOKEN, "
+            "PLANE_WORKSPACE_SLUG, and PLANE_PROJECT_ID."
+        )
+    return None
+
+
 def _resolve_data_dir() -> Path:
     configured = os.getenv("MCP_DATA_DIR", "").strip()
     project_data_dir = Path(__file__).resolve().parent.parent / "data"
@@ -66,22 +89,15 @@ def _resolve_data_dir() -> Path:
 def create_service(tasks_file: Path | None = None) -> TaskService | PlaneTaskService:
     use_plane = _is_truthy(os.getenv("MCP_USE_PLANE"))
     if use_plane:
-        base_url = os.getenv("PLANE_BASE_URL", "").strip()
-        api_token = os.getenv("PLANE_API_TOKEN", "").strip()
-        workspace_slug = os.getenv("PLANE_WORKSPACE_SLUG", "").strip()
-        project_id = os.getenv("PLANE_PROJECT_ID", "").strip()
-
-        if not all([base_url, api_token, workspace_slug, project_id]):
-            raise ValueError(
-                "Missing Plane config. Set PLANE_BASE_URL, PLANE_API_TOKEN, "
-                "PLANE_WORKSPACE_SLUG, and PLANE_PROJECT_ID."
-            )
+        env_credentials = _get_plane_env_credentials(required=True)
+        if env_credentials is None:
+            raise ValueError("Missing Plane environment credentials")
 
         return _create_plane_service(
-            base_url=base_url,
-            api_token=api_token,
-            workspace_slug=workspace_slug,
-            project_id=project_id,
+            base_url=env_credentials["base_url"],
+            api_token=env_credentials["api_token"],
+            workspace_slug=env_credentials["workspace_slug"],
+            project_id=env_credentials["project_id"],
         )
 
     default_tasks_file = _resolve_data_dir() / "tasks.json"
@@ -92,6 +108,8 @@ def create_service(tasks_file: Path | None = None) -> TaskService | PlaneTaskSer
 def create_app(tasks_file: Path | None = None) -> FastMCP:
     default_service = create_service(tasks_file=tasks_file)
     enable_multi_tenant = _is_truthy(os.getenv("MCP_MULTI_TENANT"))
+    use_server_plane_credentials_for_users = _is_truthy(os.getenv("MCP_MULTI_TENANT_USE_SERVER_PLANE_CREDENTIALS"))
+    server_plane_credentials = _get_plane_env_credentials(required=False)
 
     data_dir = _resolve_data_dir()
     credentials_path = data_dir / "credentials.json"
@@ -102,8 +120,14 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
             if not user_id or not user_id.strip():
                 raise ValueError("user_id is required when MCP_MULTI_TENANT=true")
             credentials = credentials_store.get_plane_credentials(user_id.strip())
+            if not credentials and use_server_plane_credentials_for_users and server_plane_credentials:
+                credentials = server_plane_credentials
             if not credentials:
-                raise ValueError(f"No Plane credentials found for user_id={user_id}")
+                raise ValueError(
+                    f"No Plane credentials found for user_id={user_id}. "
+                    "Use upsert_user_plane_credentials or enable "
+                    "MCP_MULTI_TENANT_USE_SERVER_PLANE_CREDENTIALS=true with PLANE_* env vars."
+                )
             return _create_plane_service(
                 base_url=credentials["base_url"],
                 api_token=credentials["api_token"],
@@ -117,6 +141,8 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         if not isinstance(service, PlaneTaskService):
             raise ValueError("This tool requires Plane mode. Enable MCP_USE_PLANE=true or MCP_MULTI_TENANT=true.")
         return service
+
+    agent_router = PlaneAgentRouter(resolve_service=resolve_service)
 
     app = FastMCP("plane-local-tasks")
 
@@ -243,6 +269,22 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         )
 
     @app.tool()
+    def connect_user_to_server_plane_credentials(user_id: str) -> dict[str, str]:
+        """Connect a user to Plane credentials already configured in server env (no token in tool args)."""
+        if not enable_multi_tenant:
+            raise ValueError("MCP_MULTI_TENANT=false. Enable it to manage per-user credentials.")
+        env_credentials = _get_plane_env_credentials(required=True)
+        if env_credentials is None:
+            raise ValueError("Missing Plane environment credentials")
+        return credentials_store.upsert_plane_credentials(
+            user_id=user_id,
+            base_url=env_credentials["base_url"],
+            workspace_slug=env_credentials["workspace_slug"],
+            project_id=env_credentials["project_id"],
+            api_token=env_credentials["api_token"],
+        )
+
+    @app.tool()
     def delete_user_plane_credentials(user_id: str) -> dict[str, Any]:
         """Delete stored Plane credentials for a user."""
         if not enable_multi_tenant:
@@ -355,6 +397,14 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
             due_date=due_date,
             label_ids=label_ids,
         )
+
+    @app.tool()
+    def plane_agent(command: str, user_id: str | None = None, actor: str = "mcp-bot") -> dict[str, Any]:
+        """Natural-language agent router for task operations.
+
+        Supports intents: create, move status, assign, comment, list, details, update dates.
+        """
+        return agent_router.handle(command=command, user_id=user_id, actor=actor)
 
     return app
 

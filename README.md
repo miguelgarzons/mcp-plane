@@ -80,6 +80,14 @@ Para despliegue, usa este modo:
 
 Con este flujo no envias token en cada tool de tareas.
 
+### Modo seguro para clientes con bloqueo de secretos
+
+Si tu cliente bloquea enviar `plane_api_token` en llamadas MCP, puedes evitarlo usando solo variables de entorno del servidor:
+
+1. Configura en el servidor: `PLANE_BASE_URL`, `PLANE_API_TOKEN`, `PLANE_WORKSPACE_SLUG`, `PLANE_PROJECT_ID`
+2. Activa `MCP_MULTI_TENANT_USE_SERVER_PLANE_CREDENTIALS=true` para fallback automatico por usuario
+3. Opcional: conecta un usuario sin enviar token con `connect_user_to_server_plane_credentials(user_id)`
+
 ### Nota para despliegues con filesystem de solo lectura
 
 Si tu runtime no permite escribir en la carpeta del proyecto (por ejemplo, algunos despliegues gestionados), define una ruta escribible:
@@ -129,10 +137,12 @@ docker compose up --build
 - `set_task_cycle(task_id, cycle_id=None, user_id=None)`
 - `search_tasks(query=None, status=None, assignee=None, start_date_from=None, start_date_to=None, due_date_from=None, due_date_to=None, limit=50, user_id=None)`
 - `bulk_update_tasks(task_ids, new_status=None, assignee=None, start_date=None, due_date=None, label_ids=None, user_id=None)`
+- `plane_agent(command, user_id=None, actor="mcp-bot")`
 
 Tools de gestion de credenciales:
 
 - `upsert_user_plane_credentials(user_id, plane_base_url, plane_api_token, plane_workspace_slug, plane_project_id)`
+- `connect_user_to_server_plane_credentials(user_id)`
 - `delete_user_plane_credentials(user_id)`
 - `list_connected_users()`
 
@@ -142,6 +152,13 @@ Tools de gestion de credenciales:
 - `mueve TSK-1a2b3c4d a por hacer`
 - `asigna TSK-1a2b3c4d a carla`
 - `comenta TSK-1a2b3c4d: revisar bug en auth`
+
+Tambien puedes usar un router unificado:
+
+- `crear issue login social inicio 2026-03-05 fin 2026-03-07`
+- `pasar esa tarea a in progress`
+- `listar mis issues`
+- `comentar esa tarea: revisar con backend`
 
 ## Siguiente paso: Plane real
 
