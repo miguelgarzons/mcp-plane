@@ -183,6 +183,8 @@ class PlaneTaskService:
             "status": status,
             "priority": issue.get("priority", "medium"),
             "assignee": assignee,
+            "start_date": issue.get("start_date"),
+            "due_date": issue.get("target_date") or issue.get("due_date"),
             "created_at": issue.get("created_at"),
             "updated_at": issue.get("updated_at"),
             "external": issue,
@@ -194,6 +196,8 @@ class PlaneTaskService:
         description: str = "",
         assignee: str | None = None,
         priority: Priority = "medium",
+        start_date: str | None = None,
+        due_date: str | None = None,
     ) -> dict[str, Any]:
         state_id = self._resolve_state_id("backlog")
         payload = {
@@ -202,6 +206,10 @@ class PlaneTaskService:
             "priority": self._map_priority(priority),
             "state": state_id,
         }
+        if isinstance(start_date, str) and start_date.strip():
+            payload["start_date"] = start_date.strip()
+        if isinstance(due_date, str) and due_date.strip():
+            payload["target_date"] = due_date.strip()
         issue = self._request("POST", self._issues_path(), json_payload=payload)
         created = self._from_plane_issue(issue)
         if assignee:
@@ -260,4 +268,19 @@ class PlaneTaskService:
         payload = {"comment_html": comment.strip()}
         self._request("POST", self._comments_path(task_id.strip()), json_payload=payload)
         issue = self._request("GET", self._issue_path(task_id.strip()))
+        return self._from_plane_issue(issue)
+
+    def update_task_dates(
+        self,
+        task_id: str,
+        start_date: str | None = None,
+        due_date: str | None = None,
+        actor: str = "mcp-bot",
+    ) -> dict[str, Any]:
+        del actor
+        payload: dict[str, Any] = {
+            "start_date": start_date.strip() if isinstance(start_date, str) and start_date.strip() else None,
+            "target_date": due_date.strip() if isinstance(due_date, str) and due_date.strip() else None,
+        }
+        issue = self._request("PATCH", self._issue_path(task_id.strip()), json_payload=payload)
         return self._from_plane_issue(issue)

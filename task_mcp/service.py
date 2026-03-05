@@ -31,6 +31,8 @@ class TaskService:
         description: str = "",
         assignee: str | None = None,
         priority: Priority = "medium",
+        start_date: str | None = None,
+        due_date: str | None = None,
     ) -> dict[str, Any]:
         tasks = self.repository.load_tasks()
         task_id = f"TSK-{uuid4().hex[:8]}"
@@ -43,6 +45,8 @@ class TaskService:
             "status": "backlog",
             "priority": priority,
             "assignee": assignee.strip() if assignee else None,
+            "start_date": start_date.strip() if isinstance(start_date, str) and start_date.strip() else None,
+            "due_date": due_date.strip() if isinstance(due_date, str) and due_date.strip() else None,
             "created_at": now,
             "updated_at": now,
             "comments": [],
@@ -130,5 +134,30 @@ class TaskService:
         task.setdefault("comments", []).append(comment_data)
         task["updated_at"] = self._utc_now()
         self._append_history(task, f"comment_added:{comment_data['id']}", actor=author)
+        self.repository.save_tasks(tasks)
+        return task
+
+    def update_task_dates(
+        self,
+        task_id: str,
+        start_date: str | None = None,
+        due_date: str | None = None,
+        actor: str = "mcp-bot",
+    ) -> dict[str, Any]:
+        tasks = self.repository.load_tasks()
+        task = self.repository.find_task(tasks, task_id.strip())
+        if not task:
+            raise ValueError(f"Task not found: {task_id}")
+
+        previous_start = task.get("start_date")
+        previous_due = task.get("due_date")
+        task["start_date"] = start_date.strip() if isinstance(start_date, str) and start_date.strip() else None
+        task["due_date"] = due_date.strip() if isinstance(due_date, str) and due_date.strip() else None
+        task["updated_at"] = self._utc_now()
+        self._append_history(
+            task,
+            f"dates_changed:start={previous_start}->{task['start_date']},due={previous_due}->{task['due_date']}",
+            actor=actor,
+        )
         self.repository.save_tasks(tasks)
         return task

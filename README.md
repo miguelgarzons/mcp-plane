@@ -9,6 +9,7 @@ Servidor MCP en Python con FastMCP para gestionar tareas de desarrollo en modo l
 - Ver una tarea por ID
 - Cambiar estado (`backlog`, `todo`, `in_progress`, `done`, `cancelled`)
 - Asignar tareas
+- Definir fecha de inicio y vencimiento (`start_date`, `due_date`)
 - Agregar comentarios
 - Actualizar tareas con texto natural en espanol
 - Modo backend local o Plane API real (por variables de entorno)
@@ -109,10 +110,11 @@ docker compose up --build
 
 ## Herramientas MCP expuestas
 
-- `create_task(..., user_id=None)`
+- `create_task(..., start_date=None, due_date=None, user_id=None)`
 - `list_tasks(..., user_id=None)`
 - `get_task(task_id, user_id=None)`
 - `update_task_status(..., user_id=None)`
+- `update_task_dates(task_id, start_date=None, due_date=None, user_id=None)`
 - `assign_task(..., user_id=None)`
 - `add_comment(..., user_id=None)`
 - `update_from_natural_text(..., user_id=None)`

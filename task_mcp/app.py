@@ -120,15 +120,22 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         description: str = "",
         assignee: str | None = None,
         priority: Priority = "medium",
+        start_date: str | None = None,
+        due_date: str | None = None,
         user_id: str | None = None,
     ) -> dict[str, Any]:
-        """Create a task in local storage or Plane."""
+        """Create a task in local storage or Plane.
+
+        Dates should use YYYY-MM-DD format.
+        """
         service = resolve_service(user_id=user_id)
         return service.create_task(
             title=title,
             description=description,
             assignee=assignee,
             priority=priority,
+            start_date=start_date,
+            due_date=due_date,
         )
 
     @app.tool()
@@ -161,6 +168,21 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         """Update task status in local storage or Plane."""
         service = resolve_service(user_id=user_id)
         return service.update_task_status(task_id=task_id, new_status=new_status, actor=actor)
+
+    @app.tool()
+    def update_task_dates(
+        task_id: str,
+        start_date: str | None = None,
+        due_date: str | None = None,
+        actor: str = "mcp-bot",
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Update task start/due dates in local storage or Plane.
+
+        Dates should use YYYY-MM-DD format.
+        """
+        service = resolve_service(user_id=user_id)
+        return service.update_task_dates(task_id=task_id, start_date=start_date, due_date=due_date, actor=actor)
 
     @app.tool()
     def assign_task(
