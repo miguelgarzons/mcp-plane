@@ -77,6 +77,14 @@ Para despliegue, usa este modo:
 
 Con este flujo no envias token en cada tool de tareas.
 
+### Nota para despliegues con filesystem de solo lectura
+
+Si tu runtime no permite escribir en la carpeta del proyecto (por ejemplo, algunos despliegues gestionados), define una ruta escribible:
+
+- `MCP_DATA_DIR=/tmp/mcp-plane-data`
+
+En esa ruta se guardan `tasks.json` y `credentials.json`.
+
 ## Ejecutar con Docker
 
 Build de imagen:

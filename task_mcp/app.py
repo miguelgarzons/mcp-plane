@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +40,29 @@ def _get_credentials_key(required: bool) -> str:
     return Fernet.generate_key().decode("utf-8")
 
 
+def _resolve_data_dir() -> Path:
+    configured = os.getenv("MCP_DATA_DIR", "").strip()
+    project_data_dir = Path(__file__).resolve().parent.parent / "data"
+    fallback_data_dir = Path(tempfile.gettempdir()) / "mcp-plane-data"
+
+    candidates: list[Path] = []
+    if configured:
+        candidates.append(Path(configured))
+    candidates.extend([project_data_dir, fallback_data_dir])
+
+    for candidate in candidates:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            probe = candidate / ".write_probe"
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink(missing_ok=True)
+            return candidate
+        except OSError:
+            continue
+
+    raise ValueError("No writable data directory found. Set MCP_DATA_DIR to a writable path.")
+
+
 def create_service(tasks_file: Path | None = None) -> TaskService | PlaneTaskService:
     use_plane = _is_truthy(os.getenv("MCP_USE_PLANE"))
     if use_plane:
@@ -60,7 +84,7 @@ def create_service(tasks_file: Path | None = None) -> TaskService | PlaneTaskSer
             project_id=project_id,
         )
 
-    default_tasks_file = Path(__file__).resolve().parent.parent / "data" / "tasks.json"
+    default_tasks_file = _resolve_data_dir() / "tasks.json"
     repository = TaskRepository(tasks_file or default_tasks_file)
     return TaskService(repository)
 
@@ -69,7 +93,7 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
     default_service = create_service(tasks_file=tasks_file)
     enable_multi_tenant = _is_truthy(os.getenv("MCP_MULTI_TENANT"))
 
-    data_dir = Path(__file__).resolve().parent.parent / "data"
+    data_dir = _resolve_data_dir()
     credentials_path = data_dir / "credentials.json"
     credentials_store = CredentialStore(credentials_path, encryption_key=_get_credentials_key(required=enable_multi_tenant))
 
