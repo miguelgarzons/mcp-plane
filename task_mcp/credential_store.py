@@ -36,7 +36,7 @@ class CredentialStore:
         user_id: str,
         base_url: str,
         workspace_slug: str,
-        project_id: str,
+        project_id: str | None,
         api_token: str,
     ) -> dict[str, str]:
         cleaned_user_id = user_id.strip()
@@ -48,7 +48,7 @@ class CredentialStore:
         data[cleaned_user_id] = {
             "base_url": base_url.strip(),
             "workspace_slug": workspace_slug.strip(),
-            "project_id": project_id.strip(),
+            "project_id": project_id.strip() if isinstance(project_id, str) and project_id.strip() else "",
             "api_token_encrypted": encrypted,
         }
         self._save_raw(data)
@@ -57,7 +57,7 @@ class CredentialStore:
             "user_id": cleaned_user_id,
             "base_url": base_url.strip(),
             "workspace_slug": workspace_slug.strip(),
-            "project_id": project_id.strip(),
+            "project_id": project_id.strip() if isinstance(project_id, str) and project_id.strip() else "",
         }
 
     def get_plane_credentials(self, user_id: str) -> dict[str, str] | None:

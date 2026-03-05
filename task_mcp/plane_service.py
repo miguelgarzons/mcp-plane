@@ -14,12 +14,12 @@ class PlaneTaskService:
         base_url: str,
         api_token: str,
         workspace_slug: str,
-        project_id: str,
+        project_id: str | None,
         timeout_seconds: int = 20,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.workspace_slug = workspace_slug
-        self.project_id = project_id
+        self.project_id = project_id.strip() if isinstance(project_id, str) and project_id.strip() else None
         self.timeout_seconds = timeout_seconds
         self.session = requests.Session()
         self.session.headers.update(
@@ -84,8 +84,8 @@ class PlaneTaskService:
             return "cancelled"
         return None
 
-    def _resolve_status_from_state_id(self, state_id: str) -> Status | None:
-        payload = self._request("GET", self._states_path())
+    def _resolve_status_from_state_id(self, state_id: str, project_id: str | None = None) -> Status | None:
+        payload = self._request("GET", self._states_path(project_id=project_id))
         states = self._safe_results(payload)
         for state in states:
             if str(state.get("id", "")).strip() != state_id.strip():
@@ -103,29 +103,44 @@ class PlaneTaskService:
             return payload["results"]
         return []
 
-    def _states_path(self) -> str:
-        return f"/api/v1/workspaces/{self.workspace_slug}/projects/{self.project_id}/states/"
+    def _effective_project_id(self, project_id: str | None = None) -> str:
+        effective = project_id.strip() if isinstance(project_id, str) and project_id.strip() else self.project_id
+        if not effective:
+            raise ValueError(
+                "project_id is required for this operation. Use list_plane_projects and pass project_id explicitly."
+            )
+        return effective
 
-    def _issues_path(self) -> str:
-        return f"/api/v1/workspaces/{self.workspace_slug}/projects/{self.project_id}/issues/"
+    def _states_path(self, project_id: str | None = None) -> str:
+        effective = self._effective_project_id(project_id)
+        return f"/api/v1/workspaces/{self.workspace_slug}/projects/{effective}/states/"
 
-    def _issue_path(self, issue_id: str) -> str:
-        return f"{self._issues_path()}{issue_id}/"
+    def _issues_path(self, project_id: str | None = None) -> str:
+        effective = self._effective_project_id(project_id)
+        return f"/api/v1/workspaces/{self.workspace_slug}/projects/{effective}/issues/"
 
-    def _comments_path(self, issue_id: str) -> str:
-        return f"{self._issue_path(issue_id)}comments/"
+    def _issue_path(self, issue_id: str, project_id: str | None = None) -> str:
+        return f"{self._issues_path(project_id=project_id)}{issue_id}/"
 
-    def _labels_path(self) -> str:
-        return f"/api/v1/workspaces/{self.workspace_slug}/projects/{self.project_id}/labels/"
+    def _comments_path(self, issue_id: str, project_id: str | None = None) -> str:
+        return f"{self._issue_path(issue_id, project_id=project_id)}comments/"
 
-    def _cycles_path(self) -> str:
-        return f"/api/v1/workspaces/{self.workspace_slug}/projects/{self.project_id}/cycles/"
+    def _labels_path(self, project_id: str | None = None) -> str:
+        effective = self._effective_project_id(project_id)
+        return f"/api/v1/workspaces/{self.workspace_slug}/projects/{effective}/labels/"
+
+    def _cycles_path(self, project_id: str | None = None) -> str:
+        effective = self._effective_project_id(project_id)
+        return f"/api/v1/workspaces/{self.workspace_slug}/projects/{effective}/cycles/"
 
     def _members_path(self) -> str:
         return f"/api/v1/workspaces/{self.workspace_slug}/members/"
 
-    def _resolve_state_id(self, status: Status) -> str:
-        payload = self._request("GET", self._states_path())
+    def _projects_path(self) -> str:
+        return f"/api/v1/workspaces/{self.workspace_slug}/projects/"
+
+    def _resolve_state_id(self, status: Status, project_id: str | None = None) -> str:
+        payload = self._request("GET", self._states_path(project_id=project_id))
         states = self._safe_results(payload)
 
         desired_by_status = {
@@ -185,14 +200,14 @@ class PlaneTaskService:
                 )
         return labels
 
-    def _from_plane_issue(self, issue: dict[str, Any]) -> dict[str, Any]:
+    def _from_plane_issue(self, issue: dict[str, Any], project_id: str | None = None) -> dict[str, Any]:
         state = issue.get("state")
         state_name = self._normalize(state.get("name") if isinstance(state, dict) else "")
         state_group = self._extract_state_group(state if isinstance(state, dict) else None)
 
         status = self._map_status_from_name_group(state_name, state_group)
         if not status and isinstance(state, str) and state.strip():
-            status = self._resolve_status_from_state_id(state)
+            status = self._resolve_status_from_state_id(state, project_id=project_id)
         if not status:
             status = "backlog"
 
@@ -227,8 +242,9 @@ class PlaneTaskService:
         priority: Priority = "medium",
         start_date: str | None = None,
         due_date: str | None = None,
+        project_id: str | None = None,
     ) -> dict[str, Any]:
-        state_id = self._resolve_state_id("backlog")
+        state_id = self._resolve_state_id("backlog", project_id=project_id)
         payload = {
             "name": title.strip(),
             "description_html": description.strip(),
@@ -239,10 +255,10 @@ class PlaneTaskService:
             payload["start_date"] = start_date.strip()
         if isinstance(due_date, str) and due_date.strip():
             payload["target_date"] = due_date.strip()
-        issue = self._request("POST", self._issues_path(), json_payload=payload)
-        created = self._from_plane_issue(issue)
+        issue = self._request("POST", self._issues_path(project_id=project_id), json_payload=payload)
+        created = self._from_plane_issue(issue, project_id=project_id)
         if assignee:
-            created = self.assign_task(task_id=str(created["id"]), assignee=assignee)
+            created = self.assign_task(task_id=str(created["id"]), assignee=assignee, project_id=project_id)
         return created
 
     def list_tasks(
@@ -250,10 +266,11 @@ class PlaneTaskService:
         status: Status | None = None,
         assignee: str | None = None,
         limit: int = 50,
+        project_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        payload = self._request("GET", self._issues_path())
+        payload = self._request("GET", self._issues_path(project_id=project_id))
         issues = self._safe_results(payload)
-        tasks = [self._from_plane_issue(issue) for issue in issues]
+        tasks = [self._from_plane_issue(issue, project_id=project_id) for issue in issues]
 
         filtered = tasks
         if status:
@@ -268,36 +285,53 @@ class PlaneTaskService:
 
         return filtered[: max(1, min(limit, 500))]
 
-    def get_task(self, task_id: str) -> dict[str, Any]:
-        issue = self._request("GET", self._issue_path(task_id.strip()))
-        return self._from_plane_issue(issue)
+    def get_task(self, task_id: str, project_id: str | None = None) -> dict[str, Any]:
+        issue = self._request("GET", self._issue_path(task_id.strip(), project_id=project_id))
+        return self._from_plane_issue(issue, project_id=project_id)
 
     def update_task_status(
         self,
         task_id: str,
         new_status: Status,
         actor: str = "mcp-bot",
+        project_id: str | None = None,
     ) -> dict[str, Any]:
         del actor
-        state_id = self._resolve_state_id(new_status)
-        issue = self._request("PATCH", self._issue_path(task_id.strip()), json_payload={"state": state_id})
-        return self._from_plane_issue(issue)
+        state_id = self._resolve_state_id(new_status, project_id=project_id)
+        issue = self._request(
+            "PATCH",
+            self._issue_path(task_id.strip(), project_id=project_id),
+            json_payload={"state": state_id},
+        )
+        return self._from_plane_issue(issue, project_id=project_id)
 
-    def assign_task(self, task_id: str, assignee: str, actor: str = "mcp-bot") -> dict[str, Any]:
+    def assign_task(
+        self,
+        task_id: str,
+        assignee: str,
+        actor: str = "mcp-bot",
+        project_id: str | None = None,
+    ) -> dict[str, Any]:
         del actor
         issue = self._request(
             "PATCH",
-            self._issue_path(task_id.strip()),
+            self._issue_path(task_id.strip(), project_id=project_id),
             json_payload={"assignee_names": [assignee.strip()]},
         )
-        return self._from_plane_issue(issue)
+        return self._from_plane_issue(issue, project_id=project_id)
 
-    def add_comment(self, task_id: str, comment: str, author: str = "mcp-bot") -> dict[str, Any]:
+    def add_comment(
+        self,
+        task_id: str,
+        comment: str,
+        author: str = "mcp-bot",
+        project_id: str | None = None,
+    ) -> dict[str, Any]:
         del author
         payload = {"comment_html": comment.strip()}
-        self._request("POST", self._comments_path(task_id.strip()), json_payload=payload)
-        issue = self._request("GET", self._issue_path(task_id.strip()))
-        return self._from_plane_issue(issue)
+        self._request("POST", self._comments_path(task_id.strip(), project_id=project_id), json_payload=payload)
+        issue = self._request("GET", self._issue_path(task_id.strip(), project_id=project_id))
+        return self._from_plane_issue(issue, project_id=project_id)
 
     def update_task_dates(
         self,
@@ -305,17 +339,18 @@ class PlaneTaskService:
         start_date: str | None = None,
         due_date: str | None = None,
         actor: str = "mcp-bot",
+        project_id: str | None = None,
     ) -> dict[str, Any]:
         del actor
         payload: dict[str, Any] = {
             "start_date": start_date.strip() if isinstance(start_date, str) and start_date.strip() else None,
             "target_date": due_date.strip() if isinstance(due_date, str) and due_date.strip() else None,
         }
-        issue = self._request("PATCH", self._issue_path(task_id.strip()), json_payload=payload)
-        return self._from_plane_issue(issue)
+        issue = self._request("PATCH", self._issue_path(task_id.strip(), project_id=project_id), json_payload=payload)
+        return self._from_plane_issue(issue, project_id=project_id)
 
-    def list_states(self) -> list[dict[str, Any]]:
-        payload = self._request("GET", self._states_path())
+    def list_states(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        payload = self._request("GET", self._states_path(project_id=project_id))
         states = self._safe_results(payload)
         return [
             {
@@ -327,8 +362,8 @@ class PlaneTaskService:
             if state.get("id")
         ]
 
-    def list_labels(self, limit: int = 200) -> list[dict[str, Any]]:
-        payload = self._request("GET", self._labels_path())
+    def list_labels(self, limit: int = 200, project_id: str | None = None) -> list[dict[str, Any]]:
+        payload = self._request("GET", self._labels_path(project_id=project_id))
         labels = self._safe_results(payload)
         normalized = [
             {
@@ -341,18 +376,23 @@ class PlaneTaskService:
         ]
         return normalized[: max(1, min(limit, 500))]
 
-    def create_label(self, name: str, color: str | None = None) -> dict[str, Any]:
+    def create_label(self, name: str, color: str | None = None, project_id: str | None = None) -> dict[str, Any]:
         payload: dict[str, Any] = {"name": name.strip()}
         if isinstance(color, str) and color.strip():
             payload["color"] = color.strip()
-        label = self._request("POST", self._labels_path(), json_payload=payload)
+        label = self._request("POST", self._labels_path(project_id=project_id), json_payload=payload)
         return {
             "id": label.get("id"),
             "name": label.get("name", ""),
             "color": label.get("color"),
         }
 
-    def _resolve_label_ids(self, label_ids: list[str] | None = None, label_names: list[str] | None = None) -> list[str]:
+    def _resolve_label_ids(
+        self,
+        label_ids: list[str] | None = None,
+        label_names: list[str] | None = None,
+        project_id: str | None = None,
+    ) -> list[str]:
         resolved: set[str] = set()
         if label_ids:
             for label_id in label_ids:
@@ -363,7 +403,7 @@ class PlaneTaskService:
         if label_names:
             names = {self._normalize(name) for name in label_names if isinstance(name, str) and name.strip()}
             if names:
-                labels = self.list_labels(limit=500)
+                labels = self.list_labels(limit=500, project_id=project_id)
                 for label in labels:
                     if self._normalize(label.get("name")) in names and label.get("id"):
                         resolved.add(str(label["id"]))
@@ -378,17 +418,22 @@ class PlaneTaskService:
         task_id: str,
         label_ids: list[str] | None = None,
         label_names: list[str] | None = None,
+        project_id: str | None = None,
     ) -> dict[str, Any]:
-        resolved_label_ids = self._resolve_label_ids(label_ids=label_ids, label_names=label_names)
+        resolved_label_ids = self._resolve_label_ids(
+            label_ids=label_ids,
+            label_names=label_names,
+            project_id=project_id,
+        )
         issue = self._request(
             "PATCH",
-            self._issue_path(task_id.strip()),
+            self._issue_path(task_id.strip(), project_id=project_id),
             json_payload={"label_ids": resolved_label_ids},
         )
-        return self._from_plane_issue(issue)
+        return self._from_plane_issue(issue, project_id=project_id)
 
-    def list_cycles(self, limit: int = 200) -> list[dict[str, Any]]:
-        payload = self._request("GET", self._cycles_path())
+    def list_cycles(self, limit: int = 200, project_id: str | None = None) -> list[dict[str, Any]]:
+        payload = self._request("GET", self._cycles_path(project_id=project_id))
         cycles = self._safe_results(payload)
         normalized = [
             {
@@ -402,10 +447,29 @@ class PlaneTaskService:
         ]
         return normalized[: max(1, min(limit, 500))]
 
-    def set_task_cycle(self, task_id: str, cycle_id: str | None = None) -> dict[str, Any]:
+    def set_task_cycle(
+        self,
+        task_id: str,
+        cycle_id: str | None = None,
+        project_id: str | None = None,
+    ) -> dict[str, Any]:
         payload: dict[str, Any] = {"cycle_id": cycle_id.strip() if isinstance(cycle_id, str) and cycle_id.strip() else None}
-        issue = self._request("PATCH", self._issue_path(task_id.strip()), json_payload=payload)
-        return self._from_plane_issue(issue)
+        issue = self._request("PATCH", self._issue_path(task_id.strip(), project_id=project_id), json_payload=payload)
+        return self._from_plane_issue(issue, project_id=project_id)
+
+    def list_projects(self, limit: int = 200) -> list[dict[str, Any]]:
+        payload = self._request("GET", self._projects_path())
+        projects = self._safe_results(payload)
+        normalized = [
+            {
+                "id": project.get("id"),
+                "name": project.get("name", ""),
+                "identifier": project.get("identifier") or project.get("slug"),
+            }
+            for project in projects
+            if project.get("id")
+        ]
+        return normalized[: max(1, min(limit, 500))]
 
     def list_members(self, limit: int = 200) -> list[dict[str, Any]]:
         payload = self._request("GET", self._members_path())
@@ -436,8 +500,9 @@ class PlaneTaskService:
         due_date_from: str | None = None,
         due_date_to: str | None = None,
         limit: int = 50,
+        project_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        tasks = self.list_tasks(status=status, assignee=assignee, limit=500)
+        tasks = self.list_tasks(status=status, assignee=assignee, limit=500, project_id=project_id)
         filtered = tasks
 
         if query and query.strip():
@@ -486,11 +551,16 @@ class PlaneTaskService:
         start_date: str | None = None,
         due_date: str | None = None,
         label_ids: list[str] | None = None,
+        project_id: str | None = None,
     ) -> dict[str, Any]:
         updated: list[dict[str, Any]] = []
         errors: list[dict[str, Any]] = []
-        state_id = self._resolve_state_id(new_status) if new_status else None
-        resolved_labels = self._resolve_label_ids(label_ids=label_ids, label_names=None) if label_ids is not None else None
+        state_id = self._resolve_state_id(new_status, project_id=project_id) if new_status else None
+        resolved_labels = (
+            self._resolve_label_ids(label_ids=label_ids, label_names=None, project_id=project_id)
+            if label_ids is not None
+            else None
+        )
 
         for raw_task_id in task_ids:
             task_id = str(raw_task_id).strip()
@@ -511,8 +581,8 @@ class PlaneTaskService:
                 errors.append({"task_id": task_id, "error": "No fields to update"})
                 continue
             try:
-                issue = self._request("PATCH", self._issue_path(task_id), json_payload=payload)
-                updated.append(self._from_plane_issue(issue))
+                issue = self._request("PATCH", self._issue_path(task_id, project_id=project_id), json_payload=payload)
+                updated.append(self._from_plane_issue(issue, project_id=project_id))
             except Exception as exc:  # noqa: BLE001
                 errors.append({"task_id": task_id, "error": str(exc)})
 

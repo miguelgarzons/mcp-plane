@@ -8,7 +8,7 @@ __pycache__/
 venv/
 env/
 ENV/
-
+docker-compose.yml
 # Build/artifacts
 build/
 dist/
