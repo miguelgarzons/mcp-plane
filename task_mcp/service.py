@@ -40,7 +40,7 @@ class TaskService:
             "id": task_id,
             "title": title.strip(),
             "description": description.strip(),
-            "status": "todo",
+            "status": "backlog",
             "priority": priority,
             "assignee": assignee.strip() if assignee else None,
             "created_at": now,

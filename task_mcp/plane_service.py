@@ -68,9 +68,11 @@ class PlaneTaskService:
         states = self._safe_results(payload)
 
         desired_by_status = {
-            "todo": {"todo", "backlog", "unstarted"},
+            "backlog": {"backlog", "unstarted"},
+            "todo": {"todo", "to do", "por hacer", "por_hacer"},
             "in_progress": {"in progress", "started", "active", "doing"},
             "done": {"done", "completed", "closed"},
+            "cancelled": {"cancelled", "canceled", "cancelado"},
             "blocked": {"blocked"},
         }
 
@@ -96,11 +98,17 @@ class PlaneTaskService:
         if isinstance(state, dict):
             state_name = str(state.get("name", "")).strip().lower()
 
-        status: Status = "todo"
-        if state_name in {"in progress", "started", "active", "doing"}:
+        status: Status = "backlog"
+        if state_name in {"backlog", "unstarted"}:
+            status = "backlog"
+        elif state_name in {"todo", "to do", "por hacer", "por_hacer"}:
+            status = "todo"
+        elif state_name in {"in progress", "started", "active", "doing", "ejecutando"}:
             status = "in_progress"
         elif state_name in {"done", "completed", "closed"}:
             status = "done"
+        elif state_name in {"cancelled", "canceled", "cancelado"}:
+            status = "cancelled"
         elif state_name == "blocked":
             status = "blocked"
 
@@ -130,7 +138,7 @@ class PlaneTaskService:
         assignee: str | None = None,
         priority: Priority = "medium",
     ) -> dict[str, Any]:
-        state_id = self._resolve_state_id("todo")
+        state_id = self._resolve_state_id("backlog")
         payload = {
             "name": title.strip(),
             "description_html": description.strip(),

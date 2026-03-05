@@ -7,7 +7,7 @@ Servidor MCP en Python con FastMCP para gestionar tareas de desarrollo en modo l
 - Crear tareas
 - Listar tareas (filtros por estado y asignado)
 - Ver una tarea por ID
-- Cambiar estado (`todo`, `in_progress`, `done`, `blocked`)
+- Cambiar estado (`backlog`, `todo`, `in_progress`, `done`, `cancelled`)
 - Asignar tareas
 - Agregar comentarios
 - Actualizar tareas con texto natural en espanol
@@ -126,7 +126,7 @@ Tools de gestion de credenciales:
 ## Comandos de texto natural soportados
 
 - `crea tarea: integrar login social`
-- `mueve TSK-1a2b3c4d a done`
+- `mueve TSK-1a2b3c4d a por hacer`
 - `asigna TSK-1a2b3c4d a carla`
 - `comenta TSK-1a2b3c4d: revisar bug en auth`
 

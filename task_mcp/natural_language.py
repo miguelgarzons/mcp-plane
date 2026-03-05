@@ -12,18 +12,22 @@ class NaturalTextUpdater:
 
     @staticmethod
     def _status_alias(value: str) -> Status | None:
-        normalized = value.strip().lower()
+        normalized = value.strip().lower().replace("-", "_").replace(" ", "_")
         mapping: dict[str, Status] = {
+            "backlog": "backlog",
             "todo": "todo",
             "to_do": "todo",
             "por_hacer": "todo",
             "in_progress": "in_progress",
-            "in-progress": "in_progress",
             "progreso": "in_progress",
+            "ejecutando": "in_progress",
             "doing": "in_progress",
             "done": "done",
             "hecho": "done",
             "completado": "done",
+            "cancelled": "cancelled",
+            "canceled": "cancelled",
+            "cancelado": "cancelled",
             "blocked": "blocked",
             "bloqueado": "blocked",
         }
@@ -39,7 +43,7 @@ class NaturalTextUpdater:
             return {"action": "create_task", "task": created}
 
         status_match = re.search(
-            r"(?:mueve|cambia(?:r)?\s+estado\s+de)\s+([A-Za-z0-9\-_]{6,64})\s+(?:a|to)\s+([a-zA-Z_\-]+)",
+            r"(?:mueve|cambia(?:r)?\s+estado\s+de)\s+([A-Za-z0-9\-_]{6,64})\s+(?:a|to)\s+([a-zA-Z_\-\s]+)",
             cleaned,
             flags=re.IGNORECASE,
         )
