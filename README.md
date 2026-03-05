@@ -88,6 +88,19 @@ Si tu cliente bloquea enviar `plane_api_token` en llamadas MCP, puedes evitarlo 
 2. Activa `MCP_MULTI_TENANT_USE_SERVER_PLANE_CREDENTIALS=true` para fallback automatico por usuario
 3. Opcional: conecta un usuario sin enviar token con `connect_user_to_server_plane_credentials(user_id)`
 
+### Mini interfaz web para registrar token de Plane
+
+El servidor expone un formulario en `GET /connect-plane` para guardar credenciales cifradas por usuario.
+
+- URL ejemplo en despliegue: `https://tu-servidor.fastmcp.app/connect-plane`
+- Requiere `MCP_MULTI_TENANT=true`
+- Guarda en `credentials.json` usando cifrado Fernet (`MCP_CREDENTIALS_KEY`)
+
+Seguridad opcional del formulario:
+
+- Define `MCP_CONNECT_UI_KEY=<clave_compartida>`
+- Abre la pagina con `?key=<clave_compartida>` (o header `x-connect-key`)
+
 ### Nota para despliegues con filesystem de solo lectura
 
 Si tu runtime no permite escribir en la carpeta del proyecto (por ejemplo, algunos despliegues gestionados), define una ruta escribible:

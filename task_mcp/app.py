@@ -4,9 +4,12 @@ import os
 import tempfile
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 from cryptography.fernet import Fernet
 from fastmcp import FastMCP
+from starlette.requests import Request
+from starlette.responses import HTMLResponse, RedirectResponse
 
 from .agent_router import PlaneAgentRouter
 from .credential_store import CredentialStore
@@ -61,6 +64,88 @@ def _get_plane_env_credentials(required: bool = False) -> dict[str, str] | None:
             "PLANE_WORKSPACE_SLUG, and PLANE_PROJECT_ID."
         )
     return None
+
+
+def _is_ui_authorized(request: Request, form_key: str | None = None) -> bool:
+    required_key = os.getenv("MCP_CONNECT_UI_KEY", "").strip()
+    if not required_key:
+        return True
+
+    query_key = str(request.query_params.get("key", "")).strip()
+    header_key = str(request.headers.get("x-connect-key", "")).strip()
+    form_connect_key = form_key.strip() if isinstance(form_key, str) else ""
+    return query_key == required_key or header_key == required_key or form_connect_key == required_key
+
+
+def _connect_form_html(
+    *,
+    message: str | None = None,
+    error: str | None = None,
+    values: dict[str, str] | None = None,
+    connect_key: str | None = None,
+) -> str:
+    values = values or {}
+    status_message = ""
+    if error:
+        status_message = f"<p style='color:#b91c1c;font-weight:600'>{error}</p>"
+    elif message:
+        status_message = f"<p style='color:#166534;font-weight:600'>{message}</p>"
+
+    def _v(key: str, fallback: str = "") -> str:
+        return values.get(key, fallback).replace("\"", "&quot;")
+
+    hidden_key = ""
+    if connect_key:
+        safe_key = connect_key.replace("\"", "&quot;")
+        hidden_key = f"<input type='hidden' name='connect_key' value='{safe_key}' />"
+
+    return f"""
+<!doctype html>
+<html lang=\"es\">
+<head>
+  <meta charset=\"utf-8\" />
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+  <title>Conectar Plane</title>
+  <style>
+    body {{ font-family: ui-sans-serif, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; background: #f5f7fb; color: #0f172a; }}
+    .wrap {{ max-width: 640px; margin: 32px auto; padding: 24px; background: #fff; border-radius: 14px; box-shadow: 0 10px 30px rgba(2,6,23,.08); }}
+    h1 {{ margin: 0 0 8px; font-size: 22px; }}
+    p {{ margin: 0 0 16px; color: #334155; }}
+    label {{ display:block; margin: 12px 0 6px; font-weight: 600; }}
+    input {{ width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 10px; }}
+    .hint {{ margin-top: 8px; font-size: 13px; color:#475569; }}
+    button {{ margin-top: 16px; width: 100%; border: 0; padding: 12px; border-radius: 10px; background: #0f766e; color: white; font-weight: 700; cursor: pointer; }}
+  </style>
+</head>
+<body>
+  <main class=\"wrap\">
+    <h1>Conectar credenciales de Plane</h1>
+    <p>Guarda tus credenciales de forma cifrada para usar el MCP sin enviar tokens por el chat.</p>
+    {status_message}
+    <form method=\"post\" action=\"/connect-plane\">
+      {hidden_key}
+      <label for=\"user_id\">Usuario</label>
+      <input id=\"user_id\" name=\"user_id\" required placeholder=\"correo@empresa.com\" value=\"{_v('user_id')}\" />
+
+      <label for=\"plane_base_url\">Plane Base URL</label>
+      <input id=\"plane_base_url\" name=\"plane_base_url\" required placeholder=\"https://proyectos.cunapp.pro\" value=\"{_v('plane_base_url')}\" />
+
+      <label for=\"plane_workspace_slug\">Workspace slug</label>
+      <input id=\"plane_workspace_slug\" name=\"plane_workspace_slug\" required placeholder=\"fs\" value=\"{_v('plane_workspace_slug')}\" />
+
+      <label for=\"plane_project_id\">Project ID</label>
+      <input id=\"plane_project_id\" name=\"plane_project_id\" required placeholder=\"uuid del proyecto\" value=\"{_v('plane_project_id')}\" />
+
+      <label for=\"plane_api_token\">API Token</label>
+      <input id=\"plane_api_token\" name=\"plane_api_token\" type=\"password\" required placeholder=\"plane_api_xxx\" />
+
+      <button type=\"submit\">Guardar credenciales</button>
+      <p class=\"hint\">Formato recomendado de fechas en tools: YYYY-MM-DD</p>
+    </form>
+  </main>
+</body>
+</html>
+"""
 
 
 def _resolve_data_dir() -> Path:
@@ -145,6 +230,76 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
     agent_router = PlaneAgentRouter(resolve_service=resolve_service)
 
     app = FastMCP("plane-local-tasks")
+
+    @app.custom_route("/connect-plane", methods=["GET"])
+    async def connect_plane_get(request: Request) -> HTMLResponse:
+        if not _is_ui_authorized(request):
+            return HTMLResponse("Unauthorized", status_code=401)
+
+        params = dict(request.query_params)
+        return HTMLResponse(
+            _connect_form_html(
+                message=str(params.get("message", "")).strip() or None,
+                error=str(params.get("error", "")).strip() or None,
+                connect_key=str(params.get("key", "")).strip() or None,
+                values={
+                    "user_id": str(params.get("user_id", "")),
+                    "plane_base_url": str(params.get("plane_base_url", "")),
+                    "plane_workspace_slug": str(params.get("plane_workspace_slug", "")),
+                    "plane_project_id": str(params.get("plane_project_id", "")),
+                },
+            )
+        )
+
+    @app.custom_route("/connect-plane", methods=["POST"])
+    async def connect_plane_post(request: Request) -> RedirectResponse:
+        form = await request.form()
+        connect_key = str(form.get("connect_key", "")).strip()
+        if not _is_ui_authorized(request, form_key=connect_key):
+            return RedirectResponse("/connect-plane?error=Unauthorized", status_code=303)
+
+        if not enable_multi_tenant:
+            return RedirectResponse(
+                "/connect-plane?error=MCP_MULTI_TENANT%3Dfalse.+Enable+it+to+store+per-user+credentials.",
+                status_code=303,
+            )
+
+        user_id = str(form.get("user_id", "")).strip()
+        base_url = str(form.get("plane_base_url", "")).strip()
+        workspace_slug = str(form.get("plane_workspace_slug", "")).strip()
+        project_id = str(form.get("plane_project_id", "")).strip()
+        api_token = str(form.get("plane_api_token", "")).strip()
+
+        if not all([user_id, base_url, workspace_slug, project_id, api_token]):
+            query = urlencode(
+                {
+                    "error": "Missing required fields",
+                    "user_id": user_id,
+                    "plane_base_url": base_url,
+                    "plane_workspace_slug": workspace_slug,
+                    "plane_project_id": project_id,
+                }
+            )
+            return RedirectResponse(f"/connect-plane?{query}", status_code=303)
+
+        credentials_store.upsert_plane_credentials(
+            user_id=user_id,
+            base_url=base_url,
+            workspace_slug=workspace_slug,
+            project_id=project_id,
+            api_token=api_token,
+        )
+
+        query = urlencode(
+            {
+                "message": "Credenciales guardadas correctamente",
+                "user_id": user_id,
+                "plane_base_url": base_url,
+                "plane_workspace_slug": workspace_slug,
+                "plane_project_id": project_id,
+            }
+        )
+        return RedirectResponse(f"/connect-plane?{query}", status_code=303)
 
     @app.tool()
     def create_task(
