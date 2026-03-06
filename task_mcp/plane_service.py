@@ -330,6 +330,13 @@ class PlaneTaskService:
             payload["target_date"] = due_date.strip()
         issue = self._request("POST", self._issues_path(project_id=project_id), json_payload=payload)
         created = self._from_plane_issue(issue, project_id=project_id)
+        if start_date or due_date:
+            created = self.update_task_dates(
+                task_id=str(created["id"]),
+                start_date=start_date,
+                due_date=due_date,
+                project_id=project_id,
+            )
         if assignee:
             created = self.assign_task(task_id=str(created["id"]), assignee=assignee, project_id=project_id)
         elif created.get("assignee"):
