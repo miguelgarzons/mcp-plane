@@ -137,6 +137,24 @@ class TaskService:
         self.repository.save_tasks(tasks)
         return task
 
+    def list_task_comments(self, task_id: str, limit: int = 100, cursor: str | None = None) -> dict[str, Any]:
+        del cursor
+        tasks = self.repository.load_tasks()
+        task = self.repository.find_task(tasks, task_id.strip())
+        if not task:
+            raise ValueError(f"Task not found: {task_id}")
+        raw_comments = task.get("comments")
+        comments: list[dict[str, Any]] = raw_comments if isinstance(raw_comments, list) else []
+        safe_limit = max(1, min(limit, 500))
+        sliced = comments[:safe_limit]
+        return {
+            "task_id": task_id.strip(),
+            "comments": sliced,
+            "count": len(sliced),
+            "next_cursor": None,
+            "prev_cursor": None,
+        }
+
     def update_task_dates(
         self,
         task_id: str,

@@ -479,6 +479,19 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         return service.add_comment(task_id=task_id, comment=comment, author=author)
 
     @app.tool()
+    def list_task_comments(
+        task_id: str,
+        limit: int = 100,
+        cursor: str | None = None,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """List comments of a task with pagination metadata."""
+        service = resolve_service(user_id=user_id)
+        if isinstance(service, PlaneTaskService):
+            return service.list_task_comments(task_id=task_id, limit=limit, cursor=cursor)
+        return service.list_task_comments(task_id=task_id, limit=limit, cursor=cursor)
+
+    @app.tool()
     def delete_task(
         task_id: str,
         actor: str = "mcp-bot",

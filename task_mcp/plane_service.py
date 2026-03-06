@@ -25,6 +25,7 @@ class PlaneTaskService:
         self.timeout_seconds = timeout_seconds
         self._min_request_interval_seconds = 0.25
         self._last_request_ts = 0.0
+        self._member_lookup: dict[str, dict[str, Any]] = {}
         self.session = requests.Session()
         self.session.headers.update(
             {
@@ -267,6 +268,9 @@ class PlaneTaskService:
             return []
         labels: list[dict[str, Any]] = []
         for label in raw_labels:
+            if isinstance(label, str) and label.strip():
+                labels.append({"id": label.strip(), "name": "", "color": None})
+                continue
             if isinstance(label, dict) and label.get("id"):
                 labels.append(
                     {
@@ -276,6 +280,18 @@ class PlaneTaskService:
                     }
                 )
         return labels
+
+    def _ensure_member_lookup(self) -> None:
+        if self._member_lookup:
+            return
+        try:
+            members = self.list_members(limit=500)
+        except Exception:  # noqa: BLE001
+            return
+        for member in members:
+            member_id = str(member.get("id", "")).strip()
+            if member_id:
+                self._member_lookup[member_id] = member
 
     @staticmethod
     def _has_assignee(task: dict[str, Any], expected_values: list[str]) -> bool:
@@ -289,6 +305,11 @@ class PlaneTaskService:
         assignees = external.get("assignees") if isinstance(external, dict) else None
         if isinstance(assignees, list):
             for item in assignees:
+                if isinstance(item, str):
+                    value = item.strip().lower()
+                    if value and any(w == value or w in value for w in wanted):
+                        return True
+                    continue
                 if not isinstance(item, dict):
                     continue
                 values = [
@@ -314,6 +335,11 @@ class PlaneTaskService:
             external_labels = external.get("labels")
             if isinstance(external_labels, list):
                 for item in external_labels:
+                    if isinstance(item, str):
+                        value = item.strip()
+                        if value:
+                            actual_ids.add(value)
+                        continue
                     if not isinstance(item, dict):
                         continue
                     label_id = str(item.get("id", "")).strip()
@@ -380,6 +406,13 @@ class PlaneTaskService:
             first = assignees[0]
             if isinstance(first, dict):
                 assignee = first.get("display_name") or first.get("email") or first.get("id")
+            elif isinstance(first, str) and first.strip():
+                self._ensure_member_lookup()
+                member = self._member_lookup.get(first.strip())
+                if isinstance(member, dict):
+                    assignee = member.get("email") or member.get("display_name") or first.strip()
+                else:
+                    assignee = first.strip()
 
         return {
             "id": issue.get("id"),
@@ -608,9 +641,62 @@ class PlaneTaskService:
     ) -> dict[str, Any]:
         del author
         payload = {"comment_html": comment.strip()}
-        self._request("POST", self._comments_path(task_id.strip(), project_id=project_id), json_payload=payload)
+        comment_response = self._request(
+            "POST",
+            self._comments_path(task_id.strip(), project_id=project_id),
+            json_payload=payload,
+        )
         issue = self._request("GET", self._issue_path(task_id.strip(), project_id=project_id))
-        return self._from_plane_issue(issue, project_id=project_id)
+        task = self._from_plane_issue(issue, project_id=project_id)
+        task["comment_sent"] = True
+        task["comment_text"] = comment.strip()
+        task["comment_response"] = comment_response
+        return task
+
+    def list_task_comments(
+        self,
+        task_id: str,
+        limit: int = 100,
+        cursor: str | None = None,
+        project_id: str | None = None,
+    ) -> dict[str, Any]:
+        query: dict[str, Any] = {"limit": max(1, min(limit, 200))}
+        if isinstance(cursor, str) and cursor.strip():
+            query["cursor"] = cursor.strip()
+
+        payload = self._request(
+            "GET",
+            self._comments_path(task_id.strip(), project_id=project_id),
+            query_params=query,
+        )
+        raw_comments = self._safe_results(payload)
+        comments: list[dict[str, Any]] = []
+        for item in raw_comments:
+            if not isinstance(item, dict):
+                continue
+            actor = item.get("created_by")
+            actor_name = None
+            if isinstance(actor, dict):
+                actor_name = actor.get("display_name") or actor.get("email") or actor.get("id")
+            comments.append(
+                {
+                    "id": item.get("id"),
+                    "author": actor_name or actor,
+                    "text": item.get("comment_stripped") or item.get("comment_html") or "",
+                    "created_at": item.get("created_at"),
+                    "external": item,
+                }
+            )
+
+        next_cursor = payload.get("next_cursor") if isinstance(payload, dict) else None
+        prev_cursor = payload.get("prev_cursor") if isinstance(payload, dict) else None
+        return {
+            "task_id": task_id.strip(),
+            "comments": comments,
+            "count": len(comments),
+            "next_cursor": next_cursor,
+            "prev_cursor": prev_cursor,
+        }
 
     def update_task_dates(
         self,

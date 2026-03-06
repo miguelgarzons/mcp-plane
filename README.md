@@ -139,6 +139,7 @@ docker compose up --build
 - `update_task_dates(task_id, start_date=None, due_date=None, user_id=None)`
 - `assign_task(..., user_id=None)`
 - `add_comment(..., user_id=None)`
+- `list_task_comments(task_id, limit=100, cursor=None, user_id=None)`
 - `delete_task(task_id, actor="mcp-bot", user_id=None)`
 - `update_from_natural_text(..., user_id=None)`
 - `list_plane_states(user_id=None)`
