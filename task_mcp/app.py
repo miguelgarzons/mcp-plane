@@ -467,6 +467,44 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         )
 
     @app.tool()
+    def set_active_project(user_id: str, project_id: str) -> dict[str, str]:
+        """Set the default Plane project for a connected user."""
+        if not enable_multi_tenant:
+            raise ValueError("MCP_MULTI_TENANT=false. Enable it to manage per-user credentials.")
+
+        credentials = credentials_store.get_plane_credentials(user_id)
+        if not credentials:
+            raise ValueError(
+                f"No Plane credentials found for user_id={user_id}. "
+                "Connect first with connect_user_plane_quick(user_id, plane_workspace_slug, plane_api_token)."
+            )
+
+        return credentials_store.upsert_plane_credentials(
+            user_id=user_id,
+            base_url=credentials["base_url"],
+            workspace_slug=credentials["workspace_slug"],
+            project_id=project_id,
+            api_token=credentials["api_token"],
+        )
+
+    @app.tool()
+    def get_active_project(user_id: str) -> dict[str, Any]:
+        """Get current default Plane project for a connected user."""
+        if not enable_multi_tenant:
+            raise ValueError("MCP_MULTI_TENANT=false. Enable it to manage per-user credentials.")
+
+        credentials = credentials_store.get_plane_credentials(user_id)
+        if not credentials:
+            return {"user_id": user_id, "project_id": None, "connected": False}
+        return {
+            "user_id": user_id,
+            "project_id": credentials.get("project_id") or None,
+            "workspace_slug": credentials.get("workspace_slug"),
+            "base_url": credentials.get("base_url"),
+            "connected": True,
+        }
+
+    @app.tool()
     def delete_user_plane_credentials(user_id: str) -> dict[str, Any]:
         """Delete stored Plane credentials for a user."""
         if not enable_multi_tenant:

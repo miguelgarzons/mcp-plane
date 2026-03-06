@@ -109,10 +109,18 @@ class PlaneTaskService:
             projects = self.list_projects(limit=200)
             if not projects:
                 raise ValueError("No projects available for this user/workspace in Plane")
-            effective = str(projects[0].get("id", "")).strip()
-            if not effective:
-                raise ValueError("Could not auto-resolve a Plane project id")
-            self.project_id = effective
+            if len(projects) == 1:
+                effective = str(projects[0].get("id", "")).strip()
+                if not effective:
+                    raise ValueError("Could not auto-resolve a Plane project id")
+                self.project_id = effective
+                return effective
+
+            options = [f"{p.get('name', '')} ({p.get('id', '')})" for p in projects[:20]]
+            raise ValueError(
+                "Multiple projects found. Select one with set_active_project(project_id, user_id) or pass project_id explicitly. "
+                f"Available: {options}"
+            )
         return effective
 
     def _states_path(self, project_id: str | None = None) -> str:
