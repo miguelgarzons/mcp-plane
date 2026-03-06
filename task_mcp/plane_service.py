@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+import time
 from typing import Any
 
 import requests
@@ -29,14 +30,43 @@ class PlaneTaskService:
             }
         )
 
-    def _request(self, method: str, path: str, json_payload: dict[str, Any] | None = None) -> Any:
+    def _request(
+        self,
+        method: str,
+        path: str,
+        json_payload: dict[str, Any] | None = None,
+        query_params: dict[str, Any] | None = None,
+    ) -> Any:
         url = f"{self.base_url}{path}"
-        response = self.session.request(
-            method=method,
-            url=url,
-            json=json_payload,
-            timeout=self.timeout_seconds,
-        )
+        attempts = 0
+        max_attempts = 3
+        while True:
+            response = self.session.request(
+                method=method,
+                url=url,
+                json=json_payload,
+                params=query_params,
+                timeout=self.timeout_seconds,
+            )
+
+            if response.status_code != 429:
+                break
+
+            attempts += 1
+            if attempts >= max_attempts:
+                raise ValueError(f"Plane API error ({response.status_code}): {response.text}")
+
+            retry_after = response.headers.get("Retry-After")
+            sleep_seconds = 1.0
+            if retry_after:
+                try:
+                    sleep_seconds = max(0.5, float(retry_after))
+                except ValueError:
+                    sleep_seconds = 1.0
+            else:
+                sleep_seconds = float(2**attempts)
+            time.sleep(min(sleep_seconds, 8.0))
+
         if response.status_code >= 400:
             raise ValueError(f"Plane API error ({response.status_code}): {response.text}")
         if not response.content:
@@ -270,6 +300,8 @@ class PlaneTaskService:
         priority: Priority = "medium",
         start_date: str | None = None,
         due_date: str | None = None,
+        label_ids: list[str] | None = None,
+        label_names: list[str] | None = None,
         project_id: str | None = None,
     ) -> dict[str, Any]:
         state_id = self._resolve_state_id("backlog", project_id=project_id)
@@ -287,6 +319,22 @@ class PlaneTaskService:
         created = self._from_plane_issue(issue, project_id=project_id)
         if assignee:
             created = self.assign_task(task_id=str(created["id"]), assignee=assignee, project_id=project_id)
+        elif created.get("assignee"):
+            created = self._from_plane_issue(
+                self._request(
+                    "PATCH",
+                    self._issue_path(str(created["id"]), project_id=project_id),
+                    json_payload={"assignee_names": []},
+                ),
+                project_id=project_id,
+            )
+        if label_ids or label_names:
+            created = self.set_task_labels(
+                task_id=str(created["id"]),
+                label_ids=label_ids,
+                label_names=label_names,
+                project_id=project_id,
+            )
         return created
 
     def list_tasks(
@@ -294,9 +342,35 @@ class PlaneTaskService:
         status: Status | None = None,
         assignee: str | None = None,
         limit: int = 50,
+        cursor: str | None = None,
+        page_size: int = 50,
         project_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        payload = self._request("GET", self._issues_path(project_id=project_id))
+        page = self.list_tasks_paginated(
+            status=status,
+            assignee=assignee,
+            limit=limit,
+            cursor=cursor,
+            page_size=page_size,
+            project_id=project_id,
+        )
+        return page["tasks"]
+
+    def list_tasks_paginated(
+        self,
+        status: Status | None = None,
+        assignee: str | None = None,
+        limit: int = 50,
+        cursor: str | None = None,
+        page_size: int = 50,
+        project_id: str | None = None,
+    ) -> dict[str, Any]:
+        safe_page_size = max(1, min(page_size, 100))
+        query: dict[str, Any] = {"limit": safe_page_size}
+        if isinstance(cursor, str) and cursor.strip():
+            query["cursor"] = cursor.strip()
+
+        payload = self._request("GET", self._issues_path(project_id=project_id), query_params=query)
         issues = self._safe_results(payload)
         tasks = [self._from_plane_issue(issue, project_id=project_id) for issue in issues]
 
@@ -311,7 +385,18 @@ class PlaneTaskService:
                 if isinstance(task.get("assignee"), str) and task["assignee"].strip().lower() == assignee_lower
             ]
 
-        return filtered[: max(1, min(limit, 500))]
+        capped = filtered[: max(1, min(limit, 500))]
+        next_cursor = payload.get("next_cursor") if isinstance(payload, dict) else None
+        prev_cursor = payload.get("prev_cursor") if isinstance(payload, dict) else None
+        total_count = payload.get("total_count") if isinstance(payload, dict) else None
+        return {
+            "tasks": capped,
+            "count": len(capped),
+            "next_cursor": next_cursor,
+            "prev_cursor": prev_cursor,
+            "total_count": total_count,
+            "page_size": safe_page_size,
+        }
 
     def get_task(self, task_id: str, project_id: str | None = None) -> dict[str, Any]:
         issue = self._request("GET", self._issue_path(task_id.strip(), project_id=project_id))

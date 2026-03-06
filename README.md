@@ -131,8 +131,9 @@ docker compose up --build
 
 ## Herramientas MCP expuestas
 
-- `create_task(..., start_date=None, due_date=None, user_id=None)`
-- `list_tasks(..., user_id=None)`
+- `create_task(..., assignee=None, assign_to=None, label_ids=None, label_names=None, start_date=None, due_date=None, user_id=None)`
+- `list_tasks(..., limit=50, cursor=None, page_size=50, user_id=None)`
+- `list_tasks_paginated(..., limit=50, cursor=None, page_size=50, user_id=None)`
 - `get_task(task_id, user_id=None)`
 - `update_task_status(..., user_id=None)`
 - `update_task_dates(task_id, start_date=None, due_date=None, user_id=None)`

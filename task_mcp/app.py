@@ -309,6 +309,9 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         title: str,
         description: str = "",
         assignee: str | None = None,
+        assign_to: str | None = None,
+        label_ids: list[str] | None = None,
+        label_names: list[str] | None = None,
         priority: Priority = "medium",
         start_date: str | None = None,
         due_date: str | None = None,
@@ -319,19 +322,22 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         Dates should use YYYY-MM-DD format.
         """
         service = resolve_service(user_id=user_id)
+        chosen_assignee = assign_to.strip() if isinstance(assign_to, str) and assign_to.strip() else assignee
         if isinstance(service, PlaneTaskService):
             return service.create_task(
                 title=title,
                 description=description,
-                assignee=assignee,
+                assignee=chosen_assignee,
                 priority=priority,
                 start_date=start_date,
                 due_date=due_date,
+                label_ids=label_ids,
+                label_names=label_names,
             )
         return service.create_task(
             title=title,
             description=description,
-            assignee=assignee,
+            assignee=chosen_assignee,
             priority=priority,
             start_date=start_date,
             due_date=due_date,
@@ -342,13 +348,50 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         status: Status | None = None,
         assignee: str | None = None,
         limit: int = 50,
+        cursor: str | None = None,
+        page_size: int = 50,
         user_id: str | None = None,
     ) -> list[dict[str, Any]]:
         """List tasks from local storage or Plane."""
         service = resolve_service(user_id=user_id)
         if isinstance(service, PlaneTaskService):
-            return service.list_tasks(status=status, assignee=assignee, limit=limit)
+            return service.list_tasks(
+                status=status,
+                assignee=assignee,
+                limit=limit,
+                cursor=cursor,
+                page_size=page_size,
+            )
         return service.list_tasks(status=status, assignee=assignee, limit=limit)
+
+    @app.tool()
+    def list_tasks_paginated(
+        status: Status | None = None,
+        assignee: str | None = None,
+        limit: int = 50,
+        cursor: str | None = None,
+        page_size: int = 50,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """List tasks with cursor pagination metadata (Plane mode)."""
+        service = resolve_service(user_id=user_id)
+        if isinstance(service, PlaneTaskService):
+            return service.list_tasks_paginated(
+                status=status,
+                assignee=assignee,
+                limit=limit,
+                cursor=cursor,
+                page_size=page_size,
+            )
+        tasks = service.list_tasks(status=status, assignee=assignee, limit=limit)
+        return {
+            "tasks": tasks,
+            "count": len(tasks),
+            "next_cursor": None,
+            "prev_cursor": None,
+            "total_count": len(tasks),
+            "page_size": max(1, min(page_size, 100)),
+        }
 
     @app.tool()
     def get_task(
