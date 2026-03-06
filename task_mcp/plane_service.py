@@ -25,7 +25,6 @@ class PlaneTaskService:
         self.session.headers.update(
             {
                 "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_token}",
                 "x-api-key": api_token,
             }
         )
