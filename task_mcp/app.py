@@ -467,8 +467,8 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         )
 
     @app.tool()
-    def set_active_project(user_id: str, project_id: str) -> dict[str, str]:
-        """Set the default Plane project for a connected user."""
+    def set_active_project(user_id: str, project_name: str) -> dict[str, Any]:
+        """Set the default Plane project by project name (no project id needed)."""
         if not enable_multi_tenant:
             raise ValueError("MCP_MULTI_TENANT=false. Enable it to manage per-user credentials.")
 
@@ -479,13 +479,28 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
                 "Connect first with connect_user_plane_quick(user_id, plane_workspace_slug, plane_api_token)."
             )
 
-        return credentials_store.upsert_plane_credentials(
+        service = _create_plane_service(
+            base_url=credentials["base_url"],
+            api_token=credentials["api_token"],
+            workspace_slug=credentials["workspace_slug"],
+            project_id=credentials.get("project_id"),
+        )
+        selected = service.set_active_project(project_name)
+
+        credentials_store.upsert_plane_credentials(
             user_id=user_id,
             base_url=credentials["base_url"],
             workspace_slug=credentials["workspace_slug"],
-            project_id=project_id,
+            project_id=str(selected.get("id", "")).strip() or None,
             api_token=credentials["api_token"],
         )
+        return {
+            "user_id": user_id,
+            "active_project": {
+                "name": selected.get("name", ""),
+                "identifier": selected.get("identifier"),
+            },
+        }
 
     @app.tool()
     def get_active_project(user_id: str) -> dict[str, Any]:
@@ -495,14 +510,16 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
 
         credentials = credentials_store.get_plane_credentials(user_id)
         if not credentials:
-            return {"user_id": user_id, "project_id": None, "connected": False}
-        return {
-            "user_id": user_id,
-            "project_id": credentials.get("project_id") or None,
-            "workspace_slug": credentials.get("workspace_slug"),
-            "base_url": credentials.get("base_url"),
-            "connected": True,
-        }
+            return {"user_id": user_id, "active_project": None, "connected": False}
+
+        service = _create_plane_service(
+            base_url=credentials["base_url"],
+            api_token=credentials["api_token"],
+            workspace_slug=credentials["workspace_slug"],
+            project_id=credentials.get("project_id"),
+        )
+        active = service.get_active_project()
+        return {"user_id": user_id, "active_project": active, "connected": True}
 
     @app.tool()
     def delete_user_plane_credentials(user_id: str) -> dict[str, Any]:
