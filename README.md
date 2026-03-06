@@ -85,7 +85,6 @@ Si tu cliente bloquea enviar `plane_api_token` en llamadas MCP, puedes evitarlo 
 
 1. Configura en el servidor: `PLANE_BASE_URL`, `PLANE_API_TOKEN`, `PLANE_WORKSPACE_SLUG`
 2. El servidor aplicara fallback automatico con esas credenciales para usuarios nuevos
-3. Opcional: conecta un usuario sin enviar token con `connect_user_to_server_plane_credentials(user_id)`
 
 ### Mini interfaz web para registrar token de Plane
 
@@ -157,7 +156,6 @@ docker compose up --build
 Tools de gestion de credenciales:
 
 - `connect_user_plane_quick(user_id, plane_workspace_slug, plane_api_token)`
-- `connect_user_to_server_plane_credentials(user_id)`
 
 Primera conexion recomendada para clientes no tecnicos:
 

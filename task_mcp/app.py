@@ -136,9 +136,6 @@ def _connect_form_html(
       <label for=\"user_id\">Usuario</label>
       <input id=\"user_id\" name=\"user_id\" required placeholder=\"correo@empresa.com\" value=\"{_v('user_id')}\" />
 
-      <label for=\"plane_base_url\">Plane Base URL (opcional)</label>
-      <input id=\"plane_base_url\" name=\"plane_base_url\" placeholder=\"https://proyectos.cunapp.pro (si lo dejas vacio usa API por defecto)\" value=\"{_v('plane_base_url')}\" />
-
       <label for=\"plane_workspace_slug\">Workspace slug</label>
       <input id=\"plane_workspace_slug\" name=\"plane_workspace_slug\" required placeholder=\"fs\" value=\"{_v('plane_workspace_slug')}\" />
 
@@ -256,7 +253,6 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
                 connect_key=str(params.get("key", "")).strip() or None,
                 values={
                     "user_id": str(params.get("user_id", "")),
-                    "plane_base_url": str(params.get("plane_base_url", "")),
                     "plane_workspace_slug": str(params.get("plane_workspace_slug", "")),
                 },
             )
@@ -276,17 +272,15 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
             )
 
         user_id = str(form.get("user_id", "")).strip()
-        base_url = str(form.get("plane_base_url", "")).strip()
         workspace_slug = str(form.get("plane_workspace_slug", "")).strip()
         api_token = str(form.get("plane_api_token", "")).strip()
-        resolved_base_url = base_url or _default_plane_base_url()
+        resolved_base_url = _default_plane_base_url()
 
         if not all([user_id, workspace_slug, api_token]):
             query = urlencode(
                 {
                     "error": "Missing required fields: user_id, workspace_slug, plane_api_token",
                     "user_id": user_id,
-                    "plane_base_url": base_url,
                     "plane_workspace_slug": workspace_slug,
                 }
             )
@@ -470,22 +464,6 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
             workspace_slug=plane_workspace_slug,
             project_id=None,
             api_token=plane_api_token,
-        )
-
-    @app.tool()
-    def connect_user_to_server_plane_credentials(user_id: str) -> dict[str, str]:
-        """Connect a user to Plane credentials already configured in server env (no token in tool args)."""
-        if not enable_multi_tenant:
-            raise ValueError("MCP_MULTI_TENANT=false. Enable it to manage per-user credentials.")
-        env_credentials = _get_plane_env_credentials(required=True)
-        if env_credentials is None:
-            raise ValueError("Missing Plane environment credentials")
-        return credentials_store.upsert_plane_credentials(
-            user_id=user_id,
-            base_url=env_credentials["base_url"],
-            workspace_slug=env_credentials["workspace_slug"],
-            project_id=env_credentials["project_id"],
-            api_token=env_credentials["api_token"],
         )
 
     @app.tool()
