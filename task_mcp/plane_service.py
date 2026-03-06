@@ -308,6 +308,19 @@ class PlaneTaskService:
                 return False
         return True
 
+    def _refresh_task_with_retries(
+        self,
+        task_id: str,
+        project_id: str | None = None,
+        retries: int = 4,
+        delay_seconds: float = 0.6,
+    ) -> dict[str, Any]:
+        latest = self.get_task(task_id=task_id, project_id=project_id)
+        for _ in range(max(0, retries)):
+            time.sleep(delay_seconds)
+            latest = self.get_task(task_id=task_id, project_id=project_id)
+        return latest
+
     def _from_plane_issue(self, issue: dict[str, Any], project_id: str | None = None) -> dict[str, Any]:
         state = issue.get("state")
         state_name = self._normalize(state.get("name") if isinstance(state, dict) else "")
@@ -491,7 +504,7 @@ class PlaneTaskService:
             json_payload={"assignee_names": [assignee.strip()]},
         )
         task = self._from_plane_issue(issue, project_id=project_id)
-        refreshed = self.get_task(task_id=task_id.strip(), project_id=project_id)
+        refreshed = self._refresh_task_with_retries(task_id=task_id.strip(), project_id=project_id, retries=2)
         if not self._has_assignee(refreshed, assignee):
             raise ValueError(
                 "Assignment was not applied by Plane. Use an exact user from list_plane_users "
@@ -604,18 +617,31 @@ class PlaneTaskService:
             label_names=label_names,
             project_id=project_id,
         )
-        issue = self._request(
-            "PATCH",
-            self._issue_path(task_id.strip(), project_id=project_id),
-            json_payload={"label_ids": resolved_label_ids},
+        payload_candidates: list[dict[str, Any]] = [
+            {"label_ids": resolved_label_ids},
+            {"labels": resolved_label_ids},
+            {"add_label_ids": resolved_label_ids},
+        ]
+
+        last_error: str | None = None
+        for payload in payload_candidates:
+            try:
+                self._request(
+                    "PATCH",
+                    self._issue_path(task_id.strip(), project_id=project_id),
+                    json_payload=payload,
+                )
+                refreshed = self._refresh_task_with_retries(task_id=task_id.strip(), project_id=project_id, retries=3)
+                if self._has_labels(refreshed, label_ids=resolved_label_ids, label_names=label_names):
+                    return refreshed
+            except Exception as exc:  # noqa: BLE001
+                last_error = str(exc)
+
+        suffix = f" Last API error: {last_error}" if last_error else ""
+        raise ValueError(
+            "Labels were not applied by Plane. Check label names/ids with list_plane_labels and try again."
+            + suffix
         )
-        task = self._from_plane_issue(issue, project_id=project_id)
-        refreshed = self.get_task(task_id=task_id.strip(), project_id=project_id)
-        if not self._has_labels(refreshed, label_ids=resolved_label_ids, label_names=label_names):
-            raise ValueError(
-                "Labels were not applied by Plane. Check label names/ids with list_plane_labels and try again."
-            )
-        return refreshed
 
     def list_cycles(self, limit: int = 200, project_id: str | None = None) -> list[dict[str, Any]]:
         payload = self._request("GET", self._cycles_path(project_id=project_id))
