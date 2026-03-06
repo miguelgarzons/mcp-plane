@@ -269,6 +269,45 @@ class PlaneTaskService:
                 )
         return labels
 
+    @staticmethod
+    def _has_assignee(task: dict[str, Any], expected: str) -> bool:
+        wanted = expected.strip().lower()
+        if not wanted:
+            return True
+        current = str(task.get("assignee", "")).strip().lower()
+        if current and wanted in current:
+            return True
+        external = task.get("external")
+        assignees = external.get("assignees") if isinstance(external, dict) else None
+        if isinstance(assignees, list):
+            for item in assignees:
+                if not isinstance(item, dict):
+                    continue
+                values = [
+                    str(item.get("display_name", "")).strip().lower(),
+                    str(item.get("email", "")).strip().lower(),
+                    str(item.get("id", "")).strip().lower(),
+                ]
+                if any(wanted == value or wanted in value for value in values if value):
+                    return True
+        return False
+
+    @staticmethod
+    def _has_labels(task: dict[str, Any], label_ids: list[str] | None, label_names: list[str] | None) -> bool:
+        actual_ids = {str(label.get("id", "")).strip() for label in task.get("labels", []) if isinstance(label, dict)}
+        actual_names = {
+            str(label.get("name", "")).strip().lower() for label in task.get("labels", []) if isinstance(label, dict)
+        }
+        if label_ids:
+            wanted_ids = {str(value).strip() for value in label_ids if str(value).strip()}
+            if not wanted_ids.issubset(actual_ids):
+                return False
+        if label_names:
+            wanted_names = {str(value).strip().lower() for value in label_names if str(value).strip()}
+            if not wanted_names.issubset(actual_names):
+                return False
+        return True
+
     def _from_plane_issue(self, issue: dict[str, Any], project_id: str | None = None) -> dict[str, Any]:
         state = issue.get("state")
         state_name = self._normalize(state.get("name") if isinstance(state, dict) else "")
@@ -355,7 +394,7 @@ class PlaneTaskService:
                 label_names=label_names,
                 project_id=project_id,
             )
-        return created
+        return self.get_task(task_id=str(created["id"]), project_id=project_id)
 
     def list_tasks(
         self,
@@ -451,7 +490,14 @@ class PlaneTaskService:
             self._issue_path(task_id.strip(), project_id=project_id),
             json_payload={"assignee_names": [assignee.strip()]},
         )
-        return self._from_plane_issue(issue, project_id=project_id)
+        task = self._from_plane_issue(issue, project_id=project_id)
+        refreshed = self.get_task(task_id=task_id.strip(), project_id=project_id)
+        if not self._has_assignee(refreshed, assignee):
+            raise ValueError(
+                "Assignment was not applied by Plane. Use an exact user from list_plane_users "
+                "(preferably email) and try again."
+            )
+        return refreshed
 
     def add_comment(
         self,
@@ -563,7 +609,13 @@ class PlaneTaskService:
             self._issue_path(task_id.strip(), project_id=project_id),
             json_payload={"label_ids": resolved_label_ids},
         )
-        return self._from_plane_issue(issue, project_id=project_id)
+        task = self._from_plane_issue(issue, project_id=project_id)
+        refreshed = self.get_task(task_id=task_id.strip(), project_id=project_id)
+        if not self._has_labels(refreshed, label_ids=resolved_label_ids, label_names=label_names):
+            raise ValueError(
+                "Labels were not applied by Plane. Check label names/ids with list_plane_labels and try again."
+            )
+        return refreshed
 
     def list_cycles(self, limit: int = 200, project_id: str | None = None) -> list[dict[str, Any]]:
         payload = self._request("GET", self._cycles_path(project_id=project_id))
