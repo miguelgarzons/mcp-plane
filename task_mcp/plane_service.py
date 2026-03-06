@@ -646,11 +646,39 @@ class PlaneTaskService:
             self._comments_path(task_id.strip(), project_id=project_id),
             json_payload=payload,
         )
+        created_comment_id = str(comment_response.get("id", "")).strip() if isinstance(comment_response, dict) else ""
+
+        confirmed = False
+        if created_comment_id:
+            for _ in range(4):
+                comments_page = self.list_task_comments(
+                    task_id=task_id.strip(),
+                    limit=50,
+                    cursor=None,
+                    project_id=project_id,
+                )
+                comments = comments_page.get("comments") if isinstance(comments_page, dict) else []
+                if isinstance(comments, list) and any(
+                    str(item.get("id", "")).strip() == created_comment_id
+                    for item in comments
+                    if isinstance(item, dict)
+                ):
+                    confirmed = True
+                    break
+                time.sleep(0.8)
+
+        if created_comment_id and not confirmed:
+            raise ValueError(
+                "Comment post returned success but comment is not visible yet in comments feed. "
+                "Try again in a few seconds."
+            )
+
         issue = self._request("GET", self._issue_path(task_id.strip(), project_id=project_id))
         task = self._from_plane_issue(issue, project_id=project_id)
         task["comment_sent"] = True
         task["comment_text"] = comment.strip()
         task["comment_response"] = comment_response
+        task["comment_confirmed"] = confirmed or not created_comment_id
         return task
 
     def list_task_comments(
