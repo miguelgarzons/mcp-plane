@@ -155,7 +155,7 @@ docker compose up --build
 
 Tools de gestion de credenciales:
 
-- `connect_user_plane_quick(user_id, plane_workspace_slug, plane_api_token)`
+- `connect_user_plane_quick(user_id, plane_workspace_slug, plane_api_token, plane_base_url=None)`
 - `set_active_project(user_id, project_name)`
 - `get_active_project(user_id)`
 

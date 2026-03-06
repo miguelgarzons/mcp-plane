@@ -451,6 +451,7 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         user_id: str,
         plane_workspace_slug: str,
         plane_api_token: str,
+        plane_base_url: str | None = None,
     ) -> dict[str, str]:
         """Quick first-time connection using only workspace slug + API token.
 
@@ -458,9 +459,14 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         """
         if not enable_multi_tenant:
             raise ValueError("MCP_MULTI_TENANT=false. Enable it to manage per-user credentials.")
+        resolved_base_url = (
+            plane_base_url.strip()
+            if isinstance(plane_base_url, str) and plane_base_url.strip()
+            else _default_plane_base_url()
+        )
         return credentials_store.upsert_plane_credentials(
             user_id=user_id,
-            base_url=_default_plane_base_url(),
+            base_url=resolved_base_url,
             workspace_slug=plane_workspace_slug,
             project_id=None,
             api_token=plane_api_token,
