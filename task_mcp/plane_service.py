@@ -278,12 +278,12 @@ class PlaneTaskService:
         return labels
 
     @staticmethod
-    def _has_assignee(task: dict[str, Any], expected: str) -> bool:
-        wanted = expected.strip().lower()
+    def _has_assignee(task: dict[str, Any], expected_values: list[str]) -> bool:
+        wanted = {value.strip().lower() for value in expected_values if isinstance(value, str) and value.strip()}
         if not wanted:
             return True
         current = str(task.get("assignee", "")).strip().lower()
-        if current and wanted in current:
+        if current and any(item == current or item in current for item in wanted):
             return True
         external = task.get("external")
         assignees = external.get("assignees") if isinstance(external, dict) else None
@@ -296,7 +296,7 @@ class PlaneTaskService:
                     str(item.get("email", "")).strip().lower(),
                     str(item.get("id", "")).strip().lower(),
                 ]
-                if any(wanted == value or wanted in value for value in values if value):
+                if any(any(w == value or w in value for w in wanted) for value in values if value):
                     return True
         return False
 
@@ -306,6 +306,22 @@ class PlaneTaskService:
         actual_names = {
             str(label.get("name", "")).strip().lower() for label in task.get("labels", []) if isinstance(label, dict)
         }
+        external = task.get("external")
+        if isinstance(external, dict):
+            external_label_ids = external.get("label_ids")
+            if isinstance(external_label_ids, list):
+                actual_ids.update({str(item).strip() for item in external_label_ids if str(item).strip()})
+            external_labels = external.get("labels")
+            if isinstance(external_labels, list):
+                for item in external_labels:
+                    if not isinstance(item, dict):
+                        continue
+                    label_id = str(item.get("id", "")).strip()
+                    label_name = str(item.get("name", "")).strip().lower()
+                    if label_id:
+                        actual_ids.add(label_id)
+                    if label_name:
+                        actual_names.add(label_name)
         if label_ids:
             wanted_ids = {str(value).strip() for value in label_ids if str(value).strip()}
             if not wanted_ids.issubset(actual_ids):
@@ -524,19 +540,60 @@ class PlaneTaskService:
         project_id: str | None = None,
     ) -> dict[str, Any]:
         del actor
-        issue = self._request(
-            "PATCH",
-            self._issue_path(task_id.strip(), project_id=project_id),
-            json_payload={"assignee_names": [assignee.strip()]},
-        )
-        task = self._from_plane_issue(issue, project_id=project_id)
-        refreshed = self._refresh_task_with_retries(task_id=task_id.strip(), project_id=project_id, retries=2)
-        if not self._has_assignee(refreshed, assignee):
-            raise ValueError(
-                "Assignment was not applied by Plane. Use an exact user from list_plane_users "
-                "(preferably email) and try again."
+        raw_assignee = assignee.strip()
+        resolved_values = [raw_assignee]
+        resolved_user_id: str | None = None
+
+        for user in self.list_members(limit=500):
+            email = str(user.get("email", "")).strip()
+            display_name = str(user.get("display_name", "")).strip()
+            user_id = str(user.get("id", "")).strip()
+            candidates = [email.lower(), display_name.lower(), user_id.lower()]
+            if raw_assignee.lower() in [candidate for candidate in candidates if candidate]:
+                if user_id:
+                    resolved_user_id = user_id
+                    resolved_values.append(user_id)
+                if email:
+                    resolved_values.append(email)
+                if display_name:
+                    resolved_values.append(display_name)
+                break
+
+        payload_candidates: list[dict[str, Any]] = [{"assignee_names": [raw_assignee]}]
+        if resolved_user_id:
+            payload_candidates.extend(
+                [
+                    {"assignees": [resolved_user_id]},
+                    {"assignee_ids": [resolved_user_id]},
+                    {"assignees": [{"id": resolved_user_id}]},
+                ]
             )
-        return refreshed
+
+        last_error: str | None = None
+        for payload in payload_candidates:
+            try:
+                self._request(
+                    "PATCH",
+                    self._issue_path(task_id.strip(), project_id=project_id),
+                    json_payload=payload,
+                )
+                refreshed = self._wait_until(
+                    task_id=task_id.strip(),
+                    project_id=project_id,
+                    retries=2,
+                    delay_seconds=1.0,
+                    checker=lambda task: self._has_assignee(task, resolved_values),
+                )
+                if self._has_assignee(refreshed, resolved_values):
+                    return refreshed
+            except Exception as exc:  # noqa: BLE001
+                last_error = str(exc)
+
+        suffix = f" Last API error: {last_error}" if last_error else ""
+        raise ValueError(
+            "Assignment was not applied by Plane. Use an exact user from list_plane_users (preferably email) and try again."
+            + suffix
+        )
 
     def add_comment(
         self,
@@ -646,6 +703,8 @@ class PlaneTaskService:
         payload_candidates: list[dict[str, Any]] = [
             {"label_ids": resolved_label_ids},
             {"labels": resolved_label_ids},
+            {"labels": [{"id": label_id} for label_id in resolved_label_ids]},
+            {"add_label_ids": resolved_label_ids},
         ]
 
         last_error: str | None = None
