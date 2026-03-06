@@ -479,6 +479,18 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         return service.add_comment(task_id=task_id, comment=comment, author=author)
 
     @app.tool()
+    def delete_task(
+        task_id: str,
+        actor: str = "mcp-bot",
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Delete a task in local storage or Plane."""
+        service = resolve_service(user_id=user_id)
+        if isinstance(service, PlaneTaskService):
+            return service.delete_task(task_id=task_id, actor=actor)
+        return service.delete_task(task_id=task_id, actor=actor)
+
+    @app.tool()
     def update_from_natural_text(
         text: str,
         actor: str = "mcp-bot",

@@ -161,3 +161,14 @@ class TaskService:
         )
         self.repository.save_tasks(tasks)
         return task
+
+    def delete_task(self, task_id: str, actor: str = "mcp-bot") -> dict[str, Any]:
+        tasks = self.repository.load_tasks()
+        cleaned_task_id = task_id.strip()
+        original_count = len(tasks)
+        remaining = [task for task in tasks if str(task.get("id", "")).strip() != cleaned_task_id]
+        deleted = len(remaining) != original_count
+        if deleted:
+            self.repository.save_tasks(remaining)
+        del actor
+        return {"task_id": cleaned_task_id, "deleted": deleted}

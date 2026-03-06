@@ -569,6 +569,7 @@ class PlaneTaskService:
             )
 
         last_error: str | None = None
+        last_seen_task: dict[str, Any] | None = None
         for payload in payload_candidates:
             try:
                 self._request(
@@ -583,16 +584,20 @@ class PlaneTaskService:
                     delay_seconds=1.0,
                     checker=lambda task: self._has_assignee(task, resolved_values),
                 )
+                last_seen_task = refreshed
                 if self._has_assignee(refreshed, resolved_values):
                     return refreshed
             except Exception as exc:  # noqa: BLE001
                 last_error = str(exc)
 
-        suffix = f" Last API error: {last_error}" if last_error else ""
-        raise ValueError(
-            "Assignment was not applied by Plane. Use an exact user from list_plane_users (preferably email) and try again."
-            + suffix
+        fallback = last_seen_task or self.get_task(task_id=task_id.strip(), project_id=project_id)
+        fallback["warning"] = (
+            "Assignment could not be confirmed in Plane response. "
+            "The request was sent; verify in UI if needed."
         )
+        if last_error:
+            fallback["assignment_last_error"] = last_error
+        return fallback
 
     def add_comment(
         self,
@@ -706,6 +711,7 @@ class PlaneTaskService:
         ]
 
         last_error: str | None = None
+        last_seen_task: dict[str, Any] | None = None
         for payload in payload_candidates:
             try:
                 self._request(
@@ -724,16 +730,20 @@ class PlaneTaskService:
                         label_names=label_names,
                     ),
                 )
+                last_seen_task = refreshed
                 if self._has_labels(refreshed, label_ids=resolved_label_ids, label_names=label_names):
                     return refreshed
             except Exception as exc:  # noqa: BLE001
                 last_error = str(exc)
 
-        suffix = f" Last API error: {last_error}" if last_error else ""
-        raise ValueError(
-            "Labels were not applied by Plane. Check label names/ids with list_plane_labels and try again."
-            + suffix
+        fallback = last_seen_task or self.get_task(task_id=task_id.strip(), project_id=project_id)
+        fallback["warning"] = (
+            "Labels could not be confirmed in Plane response. "
+            "The request was sent; verify in UI if needed."
         )
+        if last_error:
+            fallback["labels_last_error"] = last_error
+        return fallback
 
     def list_cycles(self, limit: int = 200, project_id: str | None = None) -> list[dict[str, Any]]:
         payload = self._request("GET", self._cycles_path(project_id=project_id))
@@ -907,3 +917,26 @@ class PlaneTaskService:
             "errors": errors,
             "error_count": len(errors),
         }
+
+    def delete_task(
+        self,
+        task_id: str,
+        actor: str = "mcp-bot",
+        project_id: str | None = None,
+    ) -> dict[str, Any]:
+        del actor
+        cleaned_task_id = task_id.strip()
+        try:
+            self._request("DELETE", self._issue_path(cleaned_task_id, project_id=project_id))
+        except Exception as exc:  # noqa: BLE001
+            return {"task_id": cleaned_task_id, "deleted": False, "error": str(exc)}
+
+        try:
+            self.get_task(cleaned_task_id, project_id=project_id)
+            return {
+                "task_id": cleaned_task_id,
+                "deleted": False,
+                "warning": "Issue still visible after delete call (may be soft-delete delay).",
+            }
+        except Exception:
+            return {"task_id": cleaned_task_id, "deleted": True}
