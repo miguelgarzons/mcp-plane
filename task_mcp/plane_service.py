@@ -869,45 +869,44 @@ class PlaneTaskService:
             label_names=label_names,
             project_id=project_id,
         )
-        payload_candidates: list[dict[str, Any]] = [
-            {"label_ids": resolved_label_ids},
-            {"labels": resolved_label_ids},
-            {"add_label_ids": resolved_label_ids},
-        ]
+        current = self.get_task(task_id=task_id.strip(), project_id=project_id)
+        if self._has_labels(current, label_ids=resolved_label_ids, label_names=label_names):
+            current["labels_noop"] = True
+            return current
 
         last_error: str | None = None
-        last_seen_task: dict[str, Any] | None = None
-        for payload in payload_candidates:
-            try:
-                self._request(
-                    "PATCH",
-                    self._issue_path(task_id.strip(), project_id=project_id),
-                    json_payload=payload,
-                )
-                refreshed = self._wait_until(
-                    task_id=task_id.strip(),
-                    project_id=project_id,
-                    retries=2,
-                    delay_seconds=1.0,
-                    checker=lambda task: self._has_labels(
-                        task,
-                        label_ids=resolved_label_ids,
-                        label_names=label_names,
-                    ),
-                )
-                last_seen_task = refreshed
-                if self._has_labels(refreshed, label_ids=resolved_label_ids, label_names=label_names):
-                    return refreshed
-            except Exception as exc:  # noqa: BLE001
-                last_error = str(exc)
+        payload = {"label_ids": resolved_label_ids}
+        try:
+            self._request(
+                "PATCH",
+                self._issue_path(task_id.strip(), project_id=project_id),
+                json_payload=payload,
+            )
+            refreshed = self._wait_until(
+                task_id=task_id.strip(),
+                project_id=project_id,
+                retries=2,
+                delay_seconds=1.0,
+                checker=lambda task: self._has_labels(
+                    task,
+                    label_ids=resolved_label_ids,
+                    label_names=label_names,
+                ),
+            )
+            if self._has_labels(refreshed, label_ids=resolved_label_ids, label_names=label_names):
+                return refreshed
+            fallback = refreshed
+        except Exception as exc:  # noqa: BLE001
+            last_error = str(exc)
+            fallback = self.get_task(task_id=task_id.strip(), project_id=project_id)
 
-        fallback = last_seen_task or self.get_task(task_id=task_id.strip(), project_id=project_id)
         fallback["warning"] = (
             "Labels could not be confirmed in Plane response. "
             "The request was sent; verify in UI if needed."
         )
         if last_error:
             fallback["labels_last_error"] = last_error
+        fallback["labels_payload"] = payload
         return fallback
 
     def list_cycles(self, limit: int = 200, project_id: str | None = None) -> list[dict[str, Any]]:
