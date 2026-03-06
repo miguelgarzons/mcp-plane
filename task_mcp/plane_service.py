@@ -948,6 +948,89 @@ class PlaneTaskService:
         ]
         return normalized[: max(1, min(limit, 500))]
 
+    def report_task_labels(
+        self,
+        status: Status | None = None,
+        assignee: str | None = None,
+        limit: int = 500,
+        page_size: int = 100,
+        include_unlabeled: bool = True,
+        project_id: str | None = None,
+    ) -> dict[str, Any]:
+        safe_limit = max(1, min(limit, 5000))
+        safe_page_size = max(1, min(page_size, 100))
+
+        labels_catalog = self.list_labels(limit=500, project_id=project_id)
+        label_names_by_id = {
+            str(label.get("id", "")).strip(): str(label.get("name", "")).strip()
+            for label in labels_catalog
+            if str(label.get("id", "")).strip()
+        }
+
+        cursor: str | None = None
+        all_tasks: list[dict[str, Any]] = []
+        while len(all_tasks) < safe_limit:
+            remaining = safe_limit - len(all_tasks)
+            page = self.list_tasks_paginated(
+                status=status,
+                assignee=assignee,
+                limit=min(remaining, safe_page_size),
+                cursor=cursor,
+                page_size=safe_page_size,
+                project_id=project_id,
+            )
+            tasks = page.get("tasks") if isinstance(page, dict) else []
+            if not isinstance(tasks, list) or not tasks:
+                break
+            all_tasks.extend(tasks)
+            cursor = page.get("next_cursor") if isinstance(page, dict) else None
+            if not cursor:
+                break
+
+        by_label: dict[str, int] = {}
+        unlabeled = 0
+
+        for task in all_tasks:
+            task_labels = task.get("labels")
+            if not isinstance(task_labels, list) or not task_labels:
+                unlabeled += 1
+                continue
+
+            found = False
+            for label in task_labels:
+                label_id = ""
+                label_name = ""
+                if isinstance(label, dict):
+                    label_id = str(label.get("id", "")).strip()
+                    label_name = str(label.get("name", "")).strip()
+                elif isinstance(label, str):
+                    label_id = label.strip()
+
+                if not label_name and label_id:
+                    label_name = label_names_by_id.get(label_id, "")
+
+                normalized_name = label_name or label_id
+                if not normalized_name:
+                    continue
+                by_label[normalized_name] = by_label.get(normalized_name, 0) + 1
+                found = True
+
+            if not found:
+                unlabeled += 1
+
+        labels = [{"label": label, "count": count} for label, count in by_label.items()]
+        labels.sort(key=lambda item: (-item["count"], item["label"]))
+
+        response: dict[str, Any] = {
+            "total_tasks": len(all_tasks),
+            "labels": labels,
+            "truncated": len(all_tasks) >= safe_limit,
+            "limit": safe_limit,
+        }
+        if include_unlabeled:
+            response["unlabeled_count"] = unlabeled
+        return response
+
     def list_members(self, limit: int = 200) -> list[dict[str, Any]]:
         payload = self._request("GET", self._members_path())
         members = self._safe_results(payload)

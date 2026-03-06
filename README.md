@@ -154,6 +154,7 @@ docker compose up --build
 - `set_task_cycle(task_id, cycle_id=None, user_id=None)`
 - `search_tasks(query=None, status=None, assignee=None, start_date_from=None, start_date_to=None, due_date_from=None, due_date_to=None, limit=50, user_id=None)`
 - `bulk_update_tasks(task_ids, new_status=None, assignee=None, start_date=None, due_date=None, label_ids=None, user_id=None)`
+- `report_task_labels(status=None, assignee=None, limit=500, page_size=100, include_unlabeled=True, user_id=None)`
 - `assign_task_to_plane_user(task_id, assignee, actor="mcp-bot", user_id=None)` (assignee debe ser email)
 - `plane_agent(command, user_id=None, actor="mcp-bot")`
 

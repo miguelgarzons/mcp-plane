@@ -785,6 +785,32 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         )
 
     @app.tool()
+    def report_task_labels(
+        status: Status | None = None,
+        assignee: str | None = None,
+        limit: int = 500,
+        page_size: int = 100,
+        include_unlabeled: bool = True,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Generate label usage report across tasks."""
+        service = resolve_service(user_id=user_id)
+        if isinstance(service, PlaneTaskService):
+            return service.report_task_labels(
+                status=status,
+                assignee=assignee,
+                limit=limit,
+                page_size=page_size,
+                include_unlabeled=include_unlabeled,
+            )
+        return service.report_task_labels(
+            status=status,
+            assignee=assignee,
+            limit=limit,
+            include_unlabeled=include_unlabeled,
+        )
+
+    @app.tool()
     def plane_agent(command: str, user_id: str | None = None, actor: str = "mcp-bot") -> dict[str, Any]:
         """Natural-language agent router for task operations.
 

@@ -190,3 +190,45 @@ class TaskService:
             self.repository.save_tasks(remaining)
         del actor
         return {"task_id": cleaned_task_id, "deleted": deleted}
+
+    def report_task_labels(
+        self,
+        status: Status | None = None,
+        assignee: str | None = None,
+        limit: int = 500,
+        include_unlabeled: bool = True,
+    ) -> dict[str, Any]:
+        tasks = self.list_tasks(status=status, assignee=assignee, limit=limit)
+        by_label: dict[str, int] = {}
+        unlabeled = 0
+
+        for task in tasks:
+            labels = task.get("labels")
+            if not isinstance(labels, list) or not labels:
+                unlabeled += 1
+                continue
+
+            found = False
+            for label in labels:
+                if isinstance(label, dict):
+                    name = str(label.get("name", "")).strip() or str(label.get("id", "")).strip()
+                else:
+                    name = str(label).strip()
+                if not name:
+                    continue
+                by_label[name] = by_label.get(name, 0) + 1
+                found = True
+
+            if not found:
+                unlabeled += 1
+
+        labels = [{"label": label, "count": count} for label, count in by_label.items()]
+        labels.sort(key=lambda item: (-item["count"], item["label"]))
+
+        response: dict[str, Any] = {
+            "total_tasks": len(tasks),
+            "labels": labels,
+        }
+        if include_unlabeled:
+            response["unlabeled_count"] = unlabeled
+        return response
