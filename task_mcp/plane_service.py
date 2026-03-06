@@ -194,6 +194,9 @@ class PlaneTaskService:
     def _comments_path(self, issue_id: str, project_id: str | None = None) -> str:
         return f"{self._issue_path(issue_id, project_id=project_id)}comments/"
 
+    def _assignees_path(self, issue_id: str, project_id: str | None = None) -> str:
+        return f"{self._issue_path(issue_id, project_id=project_id)}assignees/"
+
     def _labels_path(self, project_id: str | None = None) -> str:
         effective = self._effective_project_id(project_id)
         return f"/api/v1/workspaces/{self.workspace_slug}/projects/{effective}/labels/"
@@ -591,7 +594,13 @@ class PlaneTaskService:
                     resolved_values.append(email)
                 break
 
-        payload = {"assignees": [resolved_user_id]} if resolved_user_id else {"assignee_names": [raw_assignee]}
+        if not resolved_user_id:
+            raise ValueError(
+                "Could not resolve assignee email to Plane user id. "
+                "Use list_plane_users and provide an exact email from that list."
+            )
+
+        payload = {"assignees": [resolved_user_id]}
 
         last_error: str | None = None
         try:
@@ -614,6 +623,41 @@ class PlaneTaskService:
         except Exception as exc:  # noqa: BLE001
             last_error = str(exc)
             fallback = self.get_task(task_id=task_id.strip(), project_id=project_id)
+
+        if not self._has_assignee(fallback, resolved_values):
+            assignee_payload_candidates = [
+                {"assignees": [resolved_user_id]},
+                {"assignee_ids": [resolved_user_id]},
+                {"member_ids": [resolved_user_id]},
+            ]
+            for assignee_payload in assignee_payload_candidates:
+                try:
+                    self._request(
+                        "POST",
+                        self._assignees_path(task_id.strip(), project_id=project_id),
+                        json_payload=assignee_payload,
+                    )
+                except Exception:
+                    try:
+                        self._request(
+                            "PATCH",
+                            self._assignees_path(task_id.strip(), project_id=project_id),
+                            json_payload=assignee_payload,
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        last_error = str(exc)
+                        continue
+
+                fallback = self._wait_until(
+                    task_id=task_id.strip(),
+                    project_id=project_id,
+                    retries=3,
+                    delay_seconds=1.0,
+                    checker=lambda task: self._has_assignee(task, resolved_values),
+                )
+                if self._has_assignee(fallback, resolved_values):
+                    fallback["assignment_payload"] = assignee_payload
+                    return fallback
 
         fallback["warning"] = (
             "Assignment could not be confirmed in Plane response. "
