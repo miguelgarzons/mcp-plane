@@ -652,9 +652,33 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         limit: int = 200,
         user_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        """List/filter Plane users for manual task assignment."""
+        """List/filter workspace Plane users (not restricted by project membership)."""
         service = resolve_plane_service(user_id=user_id)
         return service.list_assignable_users(query=query, limit=limit)
+
+    @app.tool()
+    def list_project_users(
+        query: str | None = None,
+        limit: int = 200,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """List users that belong to the active project and can be assigned."""
+        service = resolve_plane_service(user_id=user_id)
+        result = service.list_project_users(limit=500)
+        users = result.get("users") if isinstance(result, dict) else []
+        if isinstance(users, list) and query and query.strip():
+            needle = query.strip().lower()
+            users = [
+                user
+                for user in users
+                if needle in str(user.get("email", "")).lower()
+                or needle in str(user.get("display_name", "")).lower()
+            ]
+        safe_limit = max(1, min(limit, 500))
+        if isinstance(users, list):
+            result["users"] = users[:safe_limit]
+            result["count"] = len(result["users"])
+        return result
 
     @app.tool()
     def list_plane_labels(

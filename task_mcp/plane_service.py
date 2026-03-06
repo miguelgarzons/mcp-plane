@@ -27,6 +27,7 @@ class PlaneTaskService:
         self._min_request_interval_seconds = 0.25
         self._last_request_ts = 0.0
         self._member_lookup: dict[str, dict[str, Any]] = {}
+        self._project_member_ids_cache: dict[str, set[str] | None] = {}
         self.session = requests.Session()
         self.session.headers.update(
             {
@@ -207,6 +208,13 @@ class PlaneTaskService:
 
     def _members_path(self) -> str:
         return f"/api/v1/workspaces/{self.workspace_slug}/members/"
+
+    def _project_members_paths(self, project_id: str | None = None) -> list[str]:
+        effective = self._effective_project_id(project_id)
+        return [
+            f"/api/v1/workspaces/{self.workspace_slug}/projects/{effective}/project-members/",
+            f"/api/v1/workspaces/{self.workspace_slug}/projects/{effective}/members/",
+        ]
 
     def _projects_path(self) -> str:
         return f"/api/v1/workspaces/{self.workspace_slug}/projects/"
@@ -600,6 +608,13 @@ class PlaneTaskService:
                 "Use list_plane_users and provide an exact email from that list."
             )
 
+        project_member_ids = self._get_project_member_ids(project_id=project_id)
+        if project_member_ids is not None and resolved_user_id not in project_member_ids:
+            raise ValueError(
+                "User is not a member of the active project. "
+                "Use list_project_users to choose a valid assignee for this project."
+            )
+
         payload = {"assignees": [resolved_user_id]}
 
         last_error: str | None = None
@@ -952,6 +967,68 @@ class PlaneTaskService:
                 }
             )
         return normalized[: max(1, min(limit, 500))]
+
+    @staticmethod
+    def _extract_member_id(entry: dict[str, Any]) -> str | None:
+        direct = str(entry.get("id", "")).strip()
+        if direct:
+            return direct
+        member = entry.get("member")
+        if isinstance(member, dict):
+            member_id = str(member.get("id", "")).strip()
+            if member_id:
+                return member_id
+        user = entry.get("user")
+        if isinstance(user, dict):
+            user_id = str(user.get("id", "")).strip()
+            if user_id:
+                return user_id
+        return None
+
+    def _get_project_member_ids(self, project_id: str | None = None) -> set[str] | None:
+        effective = self._effective_project_id(project_id)
+        if effective in self._project_member_ids_cache:
+            return self._project_member_ids_cache[effective]
+
+        for path in self._project_members_paths(project_id=effective):
+            try:
+                payload = self._request("GET", path)
+                rows = self._safe_results(payload)
+                ids: set[str] = set()
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    member_id = self._extract_member_id(row)
+                    if member_id:
+                        ids.add(member_id)
+                if ids:
+                    self._project_member_ids_cache[effective] = ids
+                    return ids
+            except Exception:  # noqa: BLE001
+                continue
+
+        self._project_member_ids_cache[effective] = None
+        return None
+
+    def list_project_users(self, limit: int = 200, project_id: str | None = None) -> dict[str, Any]:
+        members = self.list_members(limit=500)
+        project_member_ids = self._get_project_member_ids(project_id=project_id)
+        if project_member_ids is None:
+            capped = members[: max(1, min(limit, 500))]
+            return {
+                "users": capped,
+                "count": len(capped),
+                "project_filter_applied": False,
+                "warning": "Could not resolve project membership from API; showing workspace users.",
+            }
+
+        filtered = [member for member in members if str(member.get("id", "")).strip() in project_member_ids]
+        capped = filtered[: max(1, min(limit, 500))]
+        return {
+            "users": capped,
+            "count": len(capped),
+            "project_filter_applied": True,
+        }
 
     def list_assignable_users(self, query: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
         members = self.list_members(limit=500)

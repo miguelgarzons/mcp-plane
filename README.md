@@ -146,6 +146,7 @@ docker compose up --build
 - `list_plane_projects(limit=200, user_id=None)`
 - `list_plane_members(limit=200, user_id=None)`
 - `list_plane_users(query=None, limit=200, user_id=None)`
+- `list_project_users(query=None, limit=200, user_id=None)`
 - `list_plane_labels(limit=200, user_id=None)`
 - `create_plane_label(name, color=None, user_id=None)`
 - `set_task_labels(task_id, label_ids=None, label_names=None, user_id=None)`
