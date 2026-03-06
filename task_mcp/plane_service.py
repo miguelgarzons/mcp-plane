@@ -565,7 +565,6 @@ class PlaneTaskService:
                 [
                     {"assignees": [resolved_user_id]},
                     {"assignee_ids": [resolved_user_id]},
-                    {"assignees": [{"id": resolved_user_id}]},
                 ]
             )
 
@@ -703,7 +702,6 @@ class PlaneTaskService:
         payload_candidates: list[dict[str, Any]] = [
             {"label_ids": resolved_label_ids},
             {"labels": resolved_label_ids},
-            {"labels": [{"id": label_id} for label_id in resolved_label_ids]},
             {"add_label_ids": resolved_label_ids},
         ]
 
