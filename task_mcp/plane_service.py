@@ -591,7 +591,7 @@ class PlaneTaskService:
                     resolved_values.append(email)
                 break
 
-        payload = {"assignee_ids": [resolved_user_id]} if resolved_user_id else {"assignee_names": [raw_assignee]}
+        payload = {"assignees": [resolved_user_id]} if resolved_user_id else {"assignee_names": [raw_assignee]}
 
         last_error: str | None = None
         try:
@@ -608,6 +608,7 @@ class PlaneTaskService:
                 checker=lambda task: self._has_assignee(task, resolved_values),
             )
             if self._has_assignee(refreshed, resolved_values):
+                refreshed["assignment_payload"] = payload
                 return refreshed
             fallback = refreshed
         except Exception as exc:  # noqa: BLE001
@@ -620,6 +621,7 @@ class PlaneTaskService:
         )
         if last_error:
             fallback["assignment_last_error"] = last_error
+        fallback["assignment_payload"] = payload
         return fallback
 
     def add_comment(
