@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+import html
 import time
 from typing import Any
 
@@ -242,6 +243,16 @@ class PlaneTaskService:
         return priority
 
     @staticmethod
+    def _to_description_html(description: str) -> str | None:
+        cleaned = description.strip()
+        if not cleaned:
+            return None
+        if "<" in cleaned and ">" in cleaned:
+            return cleaned
+        escaped = html.escape(cleaned).replace("\n", "<br/>")
+        return f"<p>{escaped}</p>"
+
+    @staticmethod
     def _extract_labels(issue: dict[str, Any]) -> list[dict[str, Any]]:
         raw_labels = issue.get("labels")
         if not isinstance(raw_labels, list):
@@ -307,10 +318,12 @@ class PlaneTaskService:
         state_id = self._resolve_state_id("backlog", project_id=project_id)
         payload = {
             "name": title.strip(),
-            "description_html": description.strip(),
             "priority": self._map_priority(priority),
             "state": state_id,
         }
+        description_html = self._to_description_html(description)
+        if description_html:
+            payload["description_html"] = description_html
         if isinstance(start_date, str) and start_date.strip():
             payload["start_date"] = start_date.strip()
         if isinstance(due_date, str) and due_date.strip():
