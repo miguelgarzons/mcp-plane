@@ -23,6 +23,8 @@ class PlaneTaskService:
         self.workspace_slug = workspace_slug
         self.project_id = project_id.strip() if isinstance(project_id, str) and project_id.strip() else None
         self.timeout_seconds = timeout_seconds
+        self._min_request_interval_seconds = 0.25
+        self._last_request_ts = 0.0
         self.session = requests.Session()
         self.session.headers.update(
             {
@@ -40,8 +42,13 @@ class PlaneTaskService:
     ) -> Any:
         url = f"{self.base_url}{path}"
         attempts = 0
-        max_attempts = 3
+        max_attempts = 5
         while True:
+            now = time.monotonic()
+            wait = self._min_request_interval_seconds - (now - self._last_request_ts)
+            if wait > 0:
+                time.sleep(wait)
+
             response = self.session.request(
                 method=method,
                 url=url,
@@ -49,6 +56,7 @@ class PlaneTaskService:
                 params=query_params,
                 timeout=self.timeout_seconds,
             )
+            self._last_request_ts = time.monotonic()
 
             if response.status_code != 429:
                 break
@@ -319,6 +327,24 @@ class PlaneTaskService:
         for _ in range(max(0, retries)):
             time.sleep(delay_seconds)
             latest = self.get_task(task_id=task_id, project_id=project_id)
+        return latest
+
+    def _wait_until(
+        self,
+        task_id: str,
+        checker: Any,
+        project_id: str | None = None,
+        retries: int = 3,
+        delay_seconds: float = 1.0,
+    ) -> dict[str, Any]:
+        latest = self.get_task(task_id=task_id, project_id=project_id)
+        if checker(latest):
+            return latest
+        for _ in range(max(0, retries)):
+            time.sleep(delay_seconds)
+            latest = self.get_task(task_id=task_id, project_id=project_id)
+            if checker(latest):
+                return latest
         return latest
 
     def _from_plane_issue(self, issue: dict[str, Any], project_id: str | None = None) -> dict[str, Any]:
@@ -620,7 +646,6 @@ class PlaneTaskService:
         payload_candidates: list[dict[str, Any]] = [
             {"label_ids": resolved_label_ids},
             {"labels": resolved_label_ids},
-            {"add_label_ids": resolved_label_ids},
         ]
 
         last_error: str | None = None
@@ -631,7 +656,17 @@ class PlaneTaskService:
                     self._issue_path(task_id.strip(), project_id=project_id),
                     json_payload=payload,
                 )
-                refreshed = self._refresh_task_with_retries(task_id=task_id.strip(), project_id=project_id, retries=3)
+                refreshed = self._wait_until(
+                    task_id=task_id.strip(),
+                    project_id=project_id,
+                    retries=2,
+                    delay_seconds=1.0,
+                    checker=lambda task: self._has_labels(
+                        task,
+                        label_ids=resolved_label_ids,
+                        label_names=label_names,
+                    ),
+                )
                 if self._has_labels(refreshed, label_ids=resolved_label_ids, label_names=label_names):
                     return refreshed
             except Exception as exc:  # noqa: BLE001
