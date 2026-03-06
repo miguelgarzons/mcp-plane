@@ -114,8 +114,13 @@ class PlaneAgentRouter:
             self._memory[self._memory_key(user_id)] = memory
             return selected
 
-        options = [f"{p.get('name', '')} ({p.get('id', '')})" for p in projects[:10]]
-        raise ValueError(f"Multiple projects found. Specify one in command with 'en proyecto <nombre|id>'. Options: {options}")
+        selected = str(projects[0].get("id", "")).strip()
+        if selected:
+            memory["last_project_id"] = selected
+            self._memory[self._memory_key(user_id)] = memory
+            return selected
+
+        raise ValueError("Could not auto-select a project from workspace")
 
     def _resolve_task_reference(self, service: Any, reference: str, user_id: str | None) -> str:
         ref = reference.strip()

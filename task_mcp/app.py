@@ -318,7 +318,6 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         priority: Priority = "medium",
         start_date: str | None = None,
         due_date: str | None = None,
-        project_id: str | None = None,
         user_id: str | None = None,
     ) -> dict[str, Any]:
         """Create a task in local storage or Plane.
@@ -334,7 +333,6 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
                 priority=priority,
                 start_date=start_date,
                 due_date=due_date,
-                project_id=project_id,
             )
         return service.create_task(
             title=title,
@@ -350,25 +348,23 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         status: Status | None = None,
         assignee: str | None = None,
         limit: int = 50,
-        project_id: str | None = None,
         user_id: str | None = None,
     ) -> list[dict[str, Any]]:
         """List tasks from local storage or Plane."""
         service = resolve_service(user_id=user_id)
         if isinstance(service, PlaneTaskService):
-            return service.list_tasks(status=status, assignee=assignee, limit=limit, project_id=project_id)
+            return service.list_tasks(status=status, assignee=assignee, limit=limit)
         return service.list_tasks(status=status, assignee=assignee, limit=limit)
 
     @app.tool()
     def get_task(
         task_id: str,
-        project_id: str | None = None,
         user_id: str | None = None,
     ) -> dict[str, Any]:
         """Get one task by id from local storage or Plane."""
         service = resolve_service(user_id=user_id)
         if isinstance(service, PlaneTaskService):
-            return service.get_task(task_id, project_id=project_id)
+            return service.get_task(task_id)
         return service.get_task(task_id)
 
     @app.tool()
@@ -376,13 +372,12 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         task_id: str,
         new_status: Status,
         actor: str = "mcp-bot",
-        project_id: str | None = None,
         user_id: str | None = None,
     ) -> dict[str, Any]:
         """Update task status in local storage or Plane."""
         service = resolve_service(user_id=user_id)
         if isinstance(service, PlaneTaskService):
-            return service.update_task_status(task_id=task_id, new_status=new_status, actor=actor, project_id=project_id)
+            return service.update_task_status(task_id=task_id, new_status=new_status, actor=actor)
         return service.update_task_status(task_id=task_id, new_status=new_status, actor=actor)
 
     @app.tool()
@@ -391,7 +386,6 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         start_date: str | None = None,
         due_date: str | None = None,
         actor: str = "mcp-bot",
-        project_id: str | None = None,
         user_id: str | None = None,
     ) -> dict[str, Any]:
         """Update task start/due dates in local storage or Plane.
@@ -405,7 +399,6 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
                 start_date=start_date,
                 due_date=due_date,
                 actor=actor,
-                project_id=project_id,
             )
         return service.update_task_dates(task_id=task_id, start_date=start_date, due_date=due_date, actor=actor)
 
@@ -414,27 +407,25 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         task_id: str,
         assignee: str,
         actor: str = "mcp-bot",
-        project_id: str | None = None,
         user_id: str | None = None,
     ) -> dict[str, Any]:
         """Assign task in local storage or Plane."""
         service = resolve_service(user_id=user_id)
         if isinstance(service, PlaneTaskService):
-            return service.assign_task(task_id=task_id, assignee=assignee, actor=actor, project_id=project_id)
+            return service.assign_task(task_id=task_id, assignee=assignee, actor=actor)
         return service.assign_task(task_id=task_id, assignee=assignee, actor=actor)
 
     @app.tool()
     def assign_task_to_plane_user(
         task_id: str,
         assignee: str,
-        project_id: str | None = None,
         actor: str = "mcp-bot",
         user_id: str | None = None,
     ) -> dict[str, Any]:
         """Assign a task manually to a selected Plane user (email/name/id)."""
         service = resolve_service(user_id=user_id)
         if isinstance(service, PlaneTaskService):
-            return service.assign_task(task_id=task_id, assignee=assignee, actor=actor, project_id=project_id)
+            return service.assign_task(task_id=task_id, assignee=assignee, actor=actor)
         return service.assign_task(task_id=task_id, assignee=assignee, actor=actor)
 
     @app.tool()
@@ -442,13 +433,12 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         task_id: str,
         comment: str,
         author: str = "mcp-bot",
-        project_id: str | None = None,
         user_id: str | None = None,
     ) -> dict[str, Any]:
         """Add a comment to a task in local storage or Plane."""
         service = resolve_service(user_id=user_id)
         if isinstance(service, PlaneTaskService):
-            return service.add_comment(task_id=task_id, comment=comment, author=author, project_id=project_id)
+            return service.add_comment(task_id=task_id, comment=comment, author=author)
         return service.add_comment(task_id=task_id, comment=comment, author=author)
 
     @app.tool()
@@ -515,10 +505,10 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         return {"users": users, "count": len(users)}
 
     @app.tool()
-    def list_plane_states(project_id: str | None = None, user_id: str | None = None) -> list[dict[str, Any]]:
+    def list_plane_states(user_id: str | None = None) -> list[dict[str, Any]]:
         """List available states configured in Plane project."""
         service = resolve_plane_service(user_id=user_id)
-        return service.list_states(project_id=project_id)
+        return service.list_states()
 
     @app.tool()
     def list_plane_projects(limit: int = 200, user_id: str | None = None) -> list[dict[str, Any]]:
@@ -545,30 +535,27 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
     @app.tool()
     def list_plane_labels(
         limit: int = 200,
-        project_id: str | None = None,
         user_id: str | None = None,
     ) -> list[dict[str, Any]]:
         """List labels available in Plane project."""
         service = resolve_plane_service(user_id=user_id)
-        return service.list_labels(limit=limit, project_id=project_id)
+        return service.list_labels(limit=limit)
 
     @app.tool()
     def create_plane_label(
         name: str,
         color: str | None = None,
-        project_id: str | None = None,
         user_id: str | None = None,
     ) -> dict[str, Any]:
         """Create a new label in Plane project."""
         service = resolve_plane_service(user_id=user_id)
-        return service.create_label(name=name, color=color, project_id=project_id)
+        return service.create_label(name=name, color=color)
 
     @app.tool()
     def set_task_labels(
         task_id: str,
         label_ids: list[str] | None = None,
         label_names: list[str] | None = None,
-        project_id: str | None = None,
         user_id: str | None = None,
     ) -> dict[str, Any]:
         """Set labels for a task by IDs or names."""
@@ -577,29 +564,26 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
             task_id=task_id,
             label_ids=label_ids,
             label_names=label_names,
-            project_id=project_id,
         )
 
     @app.tool()
     def list_plane_cycles(
         limit: int = 200,
-        project_id: str | None = None,
         user_id: str | None = None,
     ) -> list[dict[str, Any]]:
         """List cycles/sprints in Plane project."""
         service = resolve_plane_service(user_id=user_id)
-        return service.list_cycles(limit=limit, project_id=project_id)
+        return service.list_cycles(limit=limit)
 
     @app.tool()
     def set_task_cycle(
         task_id: str,
         cycle_id: str | None = None,
-        project_id: str | None = None,
         user_id: str | None = None,
     ) -> dict[str, Any]:
         """Set or clear cycle/sprint for a task."""
         service = resolve_plane_service(user_id=user_id)
-        return service.set_task_cycle(task_id=task_id, cycle_id=cycle_id, project_id=project_id)
+        return service.set_task_cycle(task_id=task_id, cycle_id=cycle_id)
 
     @app.tool()
     def search_tasks(
@@ -611,7 +595,6 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         due_date_from: str | None = None,
         due_date_to: str | None = None,
         limit: int = 50,
-        project_id: str | None = None,
         user_id: str | None = None,
     ) -> list[dict[str, Any]]:
         """Search tasks by text, status, assignee and date ranges.
@@ -629,7 +612,6 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
                 due_date_from=due_date_from,
                 due_date_to=due_date_to,
                 limit=limit,
-                project_id=project_id,
             )
         return service.list_tasks(status=status, assignee=assignee, limit=limit)
 
@@ -641,7 +623,6 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         start_date: str | None = None,
         due_date: str | None = None,
         label_ids: list[str] | None = None,
-        project_id: str | None = None,
         user_id: str | None = None,
     ) -> dict[str, Any]:
         """Bulk update tasks in Plane (status, assignee, dates, labels)."""
@@ -653,7 +634,6 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
             start_date=start_date,
             due_date=due_date,
             label_ids=label_ids,
-            project_id=project_id,
         )
 
     @app.tool()

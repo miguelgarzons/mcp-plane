@@ -65,7 +65,6 @@ python server.py
    - `PLANE_BASE_URL`
    - `PLANE_API_TOKEN`
    - `PLANE_WORKSPACE_SLUG`
-   - `PLANE_PROJECT_ID` (opcional)
 
 Si `MCP_USE_PLANE=false`, el servidor usa almacenamiento local en `data/tasks.json`.
 
@@ -84,7 +83,7 @@ Con este flujo no envias token en cada tool de tareas.
 
 Si tu cliente bloquea enviar `plane_api_token` en llamadas MCP, puedes evitarlo usando solo variables de entorno del servidor:
 
-1. Configura en el servidor: `PLANE_BASE_URL`, `PLANE_API_TOKEN`, `PLANE_WORKSPACE_SLUG` (`PLANE_PROJECT_ID` opcional)
+1. Configura en el servidor: `PLANE_BASE_URL`, `PLANE_API_TOKEN`, `PLANE_WORKSPACE_SLUG`
 2. El servidor aplicara fallback automatico con esas credenciales para usuarios nuevos
 3. Opcional: conecta un usuario sin enviar token con `connect_user_to_server_plane_credentials(user_id)`
 
@@ -133,26 +132,26 @@ docker compose up --build
 
 ## Herramientas MCP expuestas
 
-- `create_task(..., start_date=None, due_date=None, project_id=None, user_id=None)`
-- `list_tasks(..., project_id=None, user_id=None)`
-- `get_task(task_id, project_id=None, user_id=None)`
-- `update_task_status(..., project_id=None, user_id=None)`
-- `update_task_dates(task_id, start_date=None, due_date=None, project_id=None, user_id=None)`
-- `assign_task(..., project_id=None, user_id=None)`
-- `add_comment(..., project_id=None, user_id=None)`
+- `create_task(..., start_date=None, due_date=None, user_id=None)`
+- `list_tasks(..., user_id=None)`
+- `get_task(task_id, user_id=None)`
+- `update_task_status(..., user_id=None)`
+- `update_task_dates(task_id, start_date=None, due_date=None, user_id=None)`
+- `assign_task(..., user_id=None)`
+- `add_comment(..., user_id=None)`
 - `update_from_natural_text(..., user_id=None)`
-- `list_plane_states(project_id=None, user_id=None)`
+- `list_plane_states(user_id=None)`
 - `list_plane_projects(limit=200, user_id=None)`
 - `list_plane_members(limit=200, user_id=None)`
 - `list_plane_users(query=None, limit=200, user_id=None)`
-- `list_plane_labels(limit=200, project_id=None, user_id=None)`
-- `create_plane_label(name, color=None, project_id=None, user_id=None)`
-- `set_task_labels(task_id, label_ids=None, label_names=None, project_id=None, user_id=None)`
-- `list_plane_cycles(limit=200, project_id=None, user_id=None)`
-- `set_task_cycle(task_id, cycle_id=None, project_id=None, user_id=None)`
-- `search_tasks(query=None, status=None, assignee=None, start_date_from=None, start_date_to=None, due_date_from=None, due_date_to=None, limit=50, project_id=None, user_id=None)`
-- `bulk_update_tasks(task_ids, new_status=None, assignee=None, start_date=None, due_date=None, label_ids=None, project_id=None, user_id=None)`
-- `assign_task_to_plane_user(task_id, assignee, project_id=None, actor="mcp-bot", user_id=None)`
+- `list_plane_labels(limit=200, user_id=None)`
+- `create_plane_label(name, color=None, user_id=None)`
+- `set_task_labels(task_id, label_ids=None, label_names=None, user_id=None)`
+- `list_plane_cycles(limit=200, user_id=None)`
+- `set_task_cycle(task_id, cycle_id=None, user_id=None)`
+- `search_tasks(query=None, status=None, assignee=None, start_date_from=None, start_date_to=None, due_date_from=None, due_date_to=None, limit=50, user_id=None)`
+- `bulk_update_tasks(task_ids, new_status=None, assignee=None, start_date=None, due_date=None, label_ids=None, user_id=None)`
+- `assign_task_to_plane_user(task_id, assignee, actor="mcp-bot", user_id=None)`
 - `plane_agent(command, user_id=None, actor="mcp-bot")`
 
 Tools de gestion de credenciales:

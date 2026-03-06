@@ -106,9 +106,13 @@ class PlaneTaskService:
     def _effective_project_id(self, project_id: str | None = None) -> str:
         effective = project_id.strip() if isinstance(project_id, str) and project_id.strip() else self.project_id
         if not effective:
-            raise ValueError(
-                "project_id is required for this operation. Use list_plane_projects and pass project_id explicitly."
-            )
+            projects = self.list_projects(limit=200)
+            if not projects:
+                raise ValueError("No projects available for this user/workspace in Plane")
+            effective = str(projects[0].get("id", "")).strip()
+            if not effective:
+                raise ValueError("Could not auto-resolve a Plane project id")
+            self.project_id = effective
         return effective
 
     def _states_path(self, project_id: str | None = None) -> str:
