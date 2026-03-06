@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 import html
+import re
 import time
 from typing import Any
 
@@ -574,22 +575,20 @@ class PlaneTaskService:
     ) -> dict[str, Any]:
         del actor
         raw_assignee = assignee.strip()
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", raw_assignee):
+            raise ValueError("Assignee must be an email address (example: user@domain.com)")
         resolved_values = [raw_assignee]
         resolved_user_id: str | None = None
 
         for user in self.list_members(limit=500):
             email = str(user.get("email", "")).strip()
-            display_name = str(user.get("display_name", "")).strip()
             user_id = str(user.get("id", "")).strip()
-            candidates = [email.lower(), display_name.lower(), user_id.lower()]
-            if raw_assignee.lower() in [candidate for candidate in candidates if candidate]:
+            if email and raw_assignee.lower() == email.lower():
                 if user_id:
                     resolved_user_id = user_id
                     resolved_values.append(user_id)
                 if email:
                     resolved_values.append(email)
-                if display_name:
-                    resolved_values.append(display_name)
                 break
 
         payload_candidates: list[dict[str, Any]] = [{"assignee_names": [raw_assignee]}]

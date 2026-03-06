@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -73,6 +74,19 @@ def _get_plane_env_credentials(required: bool = False) -> dict[str, str] | None:
 
 def _default_plane_base_url() -> str:
     return os.getenv("PLANE_BASE_URL", "").strip() or "https://api.plane.so"
+
+
+def _is_valid_email(value: str) -> bool:
+    return bool(re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value.strip()))
+
+
+def _require_assignee_email(assignee: str | None) -> str | None:
+    if not isinstance(assignee, str) or not assignee.strip():
+        return None
+    cleaned = assignee.strip()
+    if not _is_valid_email(cleaned):
+        raise ValueError("Assignee must be a valid email address. Use list_plane_users and pick exact email.")
+    return cleaned
 
 
 def _is_ui_authorized(request: Request, form_key: str | None = None) -> bool:
@@ -324,6 +338,7 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         service = resolve_service(user_id=user_id)
         chosen_assignee = assign_to.strip() if isinstance(assign_to, str) and assign_to.strip() else assignee
         if isinstance(service, PlaneTaskService):
+            chosen_assignee = _require_assignee_email(chosen_assignee)
             return service.create_task(
                 title=title,
                 description=description,
@@ -449,6 +464,7 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         """Assign task in local storage or Plane."""
         service = resolve_service(user_id=user_id)
         if isinstance(service, PlaneTaskService):
+            assignee = _require_assignee_email(assignee) or ""
             return service.assign_task(task_id=task_id, assignee=assignee, actor=actor)
         return service.assign_task(task_id=task_id, assignee=assignee, actor=actor)
 
@@ -459,9 +475,10 @@ def create_app(tasks_file: Path | None = None) -> FastMCP:
         actor: str = "mcp-bot",
         user_id: str | None = None,
     ) -> dict[str, Any]:
-        """Assign a task manually to a selected Plane user (email/name/id)."""
+        """Assign a task manually to a selected Plane user (email only)."""
         service = resolve_service(user_id=user_id)
         if isinstance(service, PlaneTaskService):
+            assignee = _require_assignee_email(assignee) or ""
             return service.assign_task(task_id=task_id, assignee=assignee, actor=actor)
         return service.assign_task(task_id=task_id, assignee=assignee, actor=actor)
 
