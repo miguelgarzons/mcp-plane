@@ -591,38 +591,29 @@ class PlaneTaskService:
                     resolved_values.append(email)
                 break
 
-        payload_candidates: list[dict[str, Any]] = [{"assignee_names": [raw_assignee]}]
-        if resolved_user_id:
-            payload_candidates.extend(
-                [
-                    {"assignees": [resolved_user_id]},
-                    {"assignee_ids": [resolved_user_id]},
-                ]
-            )
+        payload = {"assignee_ids": [resolved_user_id]} if resolved_user_id else {"assignee_names": [raw_assignee]}
 
         last_error: str | None = None
-        last_seen_task: dict[str, Any] | None = None
-        for payload in payload_candidates:
-            try:
-                self._request(
-                    "PATCH",
-                    self._issue_path(task_id.strip(), project_id=project_id),
-                    json_payload=payload,
-                )
-                refreshed = self._wait_until(
-                    task_id=task_id.strip(),
-                    project_id=project_id,
-                    retries=2,
-                    delay_seconds=1.0,
-                    checker=lambda task: self._has_assignee(task, resolved_values),
-                )
-                last_seen_task = refreshed
-                if self._has_assignee(refreshed, resolved_values):
-                    return refreshed
-            except Exception as exc:  # noqa: BLE001
-                last_error = str(exc)
+        try:
+            self._request(
+                "PATCH",
+                self._issue_path(task_id.strip(), project_id=project_id),
+                json_payload=payload,
+            )
+            refreshed = self._wait_until(
+                task_id=task_id.strip(),
+                project_id=project_id,
+                retries=3,
+                delay_seconds=1.0,
+                checker=lambda task: self._has_assignee(task, resolved_values),
+            )
+            if self._has_assignee(refreshed, resolved_values):
+                return refreshed
+            fallback = refreshed
+        except Exception as exc:  # noqa: BLE001
+            last_error = str(exc)
+            fallback = self.get_task(task_id=task_id.strip(), project_id=project_id)
 
-        fallback = last_seen_task or self.get_task(task_id=task_id.strip(), project_id=project_id)
         fallback["warning"] = (
             "Assignment could not be confirmed in Plane response. "
             "The request was sent; verify in UI if needed."
