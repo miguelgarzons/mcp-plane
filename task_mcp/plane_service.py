@@ -28,6 +28,7 @@ class PlaneTaskService:
         self._last_request_ts = 0.0
         self._member_lookup: dict[str, dict[str, Any]] = {}
         self._project_member_ids_cache: dict[str, set[str] | None] = {}
+        self._recent_label_ops: dict[str, float] = {}
         self.session = requests.Session()
         self.session.headers.update(
             {
@@ -869,6 +870,15 @@ class PlaneTaskService:
             label_names=label_names,
             project_id=project_id,
         )
+        cleaned_task_id = task_id.strip()
+        op_key = f"{cleaned_task_id}|{','.join(sorted(resolved_label_ids))}"
+        now = time.monotonic()
+        last_run = self._recent_label_ops.get(op_key)
+        if last_run and (now - last_run) < 20.0:
+            latest = self.get_task(task_id=cleaned_task_id, project_id=project_id)
+            latest["labels_noop_recent"] = True
+            return latest
+
         current = self.get_task(task_id=task_id.strip(), project_id=project_id)
         if self._has_labels(current, label_ids=resolved_label_ids, label_names=label_names):
             current["labels_noop"] = True
@@ -877,6 +887,7 @@ class PlaneTaskService:
         last_error: str | None = None
         payload = {"label_ids": resolved_label_ids}
         try:
+            self._recent_label_ops[op_key] = now
             self._request(
                 "PATCH",
                 self._issue_path(task_id.strip(), project_id=project_id),
@@ -1209,14 +1220,26 @@ class PlaneTaskService:
                 payload["start_date"] = start_date.strip() if isinstance(start_date, str) and start_date.strip() else None
             if due_date is not None:
                 payload["target_date"] = due_date.strip() if isinstance(due_date, str) and due_date.strip() else None
-            if resolved_labels is not None:
-                payload["label_ids"] = resolved_labels
             if not payload:
-                errors.append({"task_id": task_id, "error": "No fields to update"})
-                continue
+                if resolved_labels is None:
+                    errors.append({"task_id": task_id, "error": "No fields to update"})
+                    continue
+
             try:
-                issue = self._request("PATCH", self._issue_path(task_id, project_id=project_id), json_payload=payload)
-                updated.append(self._from_plane_issue(issue, project_id=project_id))
+                task_result = self.get_task(task_id, project_id=project_id)
+                if payload:
+                    issue = self._request("PATCH", self._issue_path(task_id, project_id=project_id), json_payload=payload)
+                    task_result = self._from_plane_issue(issue, project_id=project_id)
+
+                if resolved_labels is not None:
+                    task_result = self.set_task_labels(
+                        task_id=task_id,
+                        label_ids=resolved_labels,
+                        label_names=None,
+                        project_id=project_id,
+                    )
+
+                updated.append(task_result)
             except Exception as exc:  # noqa: BLE001
                 errors.append({"task_id": task_id, "error": str(exc)})
 
