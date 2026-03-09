@@ -9,7 +9,7 @@ Servidor MCP en Python para operar tareas de Plane.
 - El token de Plane se registra una vez por usuario con `set_user_plane_token`.
 - `PLANE_PROJECT_ID` no se usa; el proyecto se resuelve dinamicamente desde Plane.
 
-## Variables de entorno
+
 
 ```bash
 PLANE_BASE_URL=https://api.plane.so

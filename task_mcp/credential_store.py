@@ -5,6 +5,7 @@ from typing import Any, Iterator
 
 import psycopg2
 from psycopg2 import sql
+from psycopg2.errors import InsufficientPrivilege
 from psycopg2.pool import SimpleConnectionPool
 
 
@@ -43,11 +44,14 @@ class CredentialStore:
     def _ensure_schema_and_table(self) -> None:
         with self._connection() as conn:
             with conn.cursor() as cursor:
-                cursor.execute(
-                    sql.SQL("CREATE SCHEMA IF NOT EXISTS {};").format(
-                        sql.Identifier(self.schema)
+                try:
+                    cursor.execute(
+                        sql.SQL("CREATE SCHEMA IF NOT EXISTS {};").format(
+                            sql.Identifier(self.schema)
+                        )
                     )
-                )
+                except InsufficientPrivilege:
+                    conn.rollback()
                 cursor.execute(
                     sql.SQL(
                         """
