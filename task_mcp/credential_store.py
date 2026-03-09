@@ -1,93 +1,147 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
-from typing import Any
+from contextlib import contextmanager
+from typing import Any, Iterator
 
-from cryptography.fernet import Fernet
+import psycopg2
+from psycopg2 import sql
+from psycopg2.pool import SimpleConnectionPool
 
 
 class CredentialStore:
-    def __init__(self, file_path: Path, encryption_key: str) -> None:
-        self.file_path = file_path
-        self.fernet = Fernet(encryption_key.encode("utf-8"))
-
-    def _ensure_storage(self) -> None:
-        self.file_path.parent.mkdir(parents=True, exist_ok=True)
-        if not self.file_path.exists():
-            self.file_path.write_text("{}", encoding="utf-8")
-
-    def _load_raw(self) -> dict[str, Any]:
-        self._ensure_storage()
-        raw = self.file_path.read_text(encoding="utf-8").strip()
-        if not raw:
-            return {}
-        data = json.loads(raw)
-        if not isinstance(data, dict):
-            raise ValueError("credentials store must contain an object")
-        return data
-
-    def _save_raw(self, data: dict[str, Any]) -> None:
-        self._ensure_storage()
-        self.file_path.write_text(json.dumps(data, ensure_ascii=True, indent=2), encoding="utf-8")
-
-    def upsert_plane_credentials(
+    def __init__(
         self,
-        user_id: str,
-        base_url: str,
-        workspace_slug: str,
-        project_id: str | None,
-        api_token: str,
-    ) -> dict[str, str]:
+        *,
+        host: str,
+        port: int,
+        database: str,
+        user: str,
+        password: str,
+        schema: str = "mcp",
+    ) -> None:
+        self.schema = schema.strip() or "mcp"
+        self.table_name = "plane_user_credentials"
+        self._pool = SimpleConnectionPool(
+            minconn=1,
+            maxconn=10,
+            host=host,
+            port=port,
+            dbname=database,
+            user=user,
+            password=password,
+        )
+        self._ensure_schema_and_table()
+
+    @contextmanager
+    def _connection(self) -> Iterator[Any]:
+        conn = self._pool.getconn()
+        try:
+            yield conn
+        finally:
+            self._pool.putconn(conn)
+
+    def _ensure_schema_and_table(self) -> None:
+        with self._connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL("CREATE SCHEMA IF NOT EXISTS {};").format(
+                        sql.Identifier(self.schema)
+                    )
+                )
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS {}.{} (
+                            user_id TEXT PRIMARY KEY,
+                            plane_api_token TEXT NOT NULL,
+                            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                        );
+                        """
+                    ).format(
+                        sql.Identifier(self.schema),
+                        sql.Identifier(self.table_name),
+                    )
+                )
+            conn.commit()
+
+    def upsert_plane_credentials(self, user_id: str, api_token: str) -> dict[str, str]:
         cleaned_user_id = user_id.strip()
         if not cleaned_user_id:
             raise ValueError("user_id is required")
 
-        data = self._load_raw()
-        encrypted = self.fernet.encrypt(api_token.strip().encode("utf-8")).decode("utf-8")
-        data[cleaned_user_id] = {
-            "base_url": base_url.strip(),
-            "workspace_slug": workspace_slug.strip(),
-            "project_id": project_id.strip() if isinstance(project_id, str) and project_id.strip() else "",
-            "api_token_encrypted": encrypted,
-        }
-        self._save_raw(data)
+        cleaned_token = api_token.strip()
+        if not cleaned_token:
+            raise ValueError("plane_api_token is required")
 
-        return {
-            "user_id": cleaned_user_id,
-            "base_url": base_url.strip(),
-            "workspace_slug": workspace_slug.strip(),
-            "project_id": project_id.strip() if isinstance(project_id, str) and project_id.strip() else "",
-        }
+        with self._connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        INSERT INTO {}.{} (user_id, plane_api_token)
+                        VALUES (%s, %s)
+                        ON CONFLICT (user_id)
+                        DO UPDATE SET
+                            plane_api_token = EXCLUDED.plane_api_token,
+                            updated_at = NOW();
+                        """
+                    ).format(
+                        sql.Identifier(self.schema),
+                        sql.Identifier(self.table_name),
+                    ),
+                    (cleaned_user_id, cleaned_token),
+                )
+            conn.commit()
+        return {"user_id": cleaned_user_id}
 
     def get_plane_credentials(self, user_id: str) -> dict[str, str] | None:
         cleaned_user_id = user_id.strip()
-        data = self._load_raw()
-        entry = data.get(cleaned_user_id)
-        if not isinstance(entry, dict):
+        if not cleaned_user_id:
             return None
 
-        encrypted = str(entry.get("api_token_encrypted", ""))
-        if not encrypted:
+        with self._connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "SELECT plane_api_token FROM {}.{} WHERE user_id = %s"
+                    ).format(
+                        sql.Identifier(self.schema),
+                        sql.Identifier(self.table_name),
+                    ),
+                    (cleaned_user_id,),
+                )
+                row = cursor.fetchone()
+        if not row:
             return None
-
-        decrypted = self.fernet.decrypt(encrypted.encode("utf-8")).decode("utf-8")
-        return {
-            "base_url": str(entry.get("base_url", "")).strip(),
-            "workspace_slug": str(entry.get("workspace_slug", "")).strip(),
-            "project_id": str(entry.get("project_id", "")).strip(),
-            "api_token": decrypted,
-        }
+        return {"api_token": str(row[0]).strip()}
 
     def delete_plane_credentials(self, user_id: str) -> bool:
         cleaned_user_id = user_id.strip()
-        data = self._load_raw()
-        existed = cleaned_user_id in data
-        if existed:
-            del data[cleaned_user_id]
-            self._save_raw(data)
-        return existed
+        if not cleaned_user_id:
+            return False
+
+        with self._connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL("DELETE FROM {}.{} WHERE user_id = %s").format(
+                        sql.Identifier(self.schema),
+                        sql.Identifier(self.table_name),
+                    ),
+                    (cleaned_user_id,),
+                )
+                deleted = cursor.rowcount > 0
+            conn.commit()
+        return deleted
 
     def list_users(self) -> list[str]:
-        data = self._load_raw()
-        return sorted(data.keys())
+        with self._connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL("SELECT user_id FROM {}.{} ORDER BY user_id ASC").format(
+                        sql.Identifier(self.schema),
+                        sql.Identifier(self.table_name),
+                    )
+                )
+                rows = cursor.fetchall()
+        return [str(row[0]).strip() for row in rows if row and str(row[0]).strip()]

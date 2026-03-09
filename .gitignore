@@ -35,7 +35,6 @@ htmlcov/
 
 # Local runtime data
 data/tasks.json
-data/credentials.json
 
 # Editor/OS files
 .vscode/
