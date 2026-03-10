@@ -598,41 +598,111 @@ class PlaneTaskService:
         project_id: str | None = None,
     ) -> dict[str, Any]:
         safe_page_size = max(1, min(page_size, 100))
-        query: dict[str, Any] = {"limit": safe_page_size}
-        if isinstance(cursor, str) and cursor.strip():
-            query["cursor"] = cursor.strip()
+        safe_limit = max(1, min(limit, 500))
 
-        payload = self._request(
-            "GET", self._issues_path(project_id=project_id), query_params=query
-        )
-        issues = self._safe_results(payload)
-        tasks = [
-            self._from_plane_issue(issue, project_id=project_id) for issue in issues
-        ]
+        def _filter_and_cap(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            filtered_items = items
+            if status:
+                filtered_items = [
+                    task for task in filtered_items if task["status"] == status
+                ]
+            if assignee:
+                assignee_lower = assignee.strip().lower()
+                filtered_items = [
+                    task
+                    for task in filtered_items
+                    if isinstance(task.get("assignee"), str)
+                    and task["assignee"].strip().lower() == assignee_lower
+                ]
+            return filtered_items[:safe_limit]
 
-        filtered = tasks
-        if status:
-            filtered = [task for task in filtered if task["status"] == status]
-        if assignee:
-            assignee_lower = assignee.strip().lower()
-            filtered = [
-                task
-                for task in filtered
-                if isinstance(task.get("assignee"), str)
-                and task["assignee"].strip().lower() == assignee_lower
+        if isinstance(project_id, str) and project_id.strip():
+            query: dict[str, Any] = {"limit": safe_page_size}
+            if isinstance(cursor, str) and cursor.strip():
+                query["cursor"] = cursor.strip()
+
+            payload = self._request(
+                "GET", self._issues_path(project_id=project_id), query_params=query
+            )
+            issues = self._safe_results(payload)
+            tasks = [
+                self._from_plane_issue(issue, project_id=project_id) for issue in issues
             ]
 
-        capped = filtered[: max(1, min(limit, 500))]
-        next_cursor = payload.get("next_cursor") if isinstance(payload, dict) else None
-        prev_cursor = payload.get("prev_cursor") if isinstance(payload, dict) else None
-        total_count = payload.get("total_count") if isinstance(payload, dict) else None
+            capped = _filter_and_cap(tasks)
+            next_cursor = (
+                payload.get("next_cursor") if isinstance(payload, dict) else None
+            )
+            prev_cursor = (
+                payload.get("prev_cursor") if isinstance(payload, dict) else None
+            )
+            total_count = (
+                payload.get("total_count") if isinstance(payload, dict) else None
+            )
+            return {
+                "tasks": capped,
+                "count": len(capped),
+                "next_cursor": next_cursor,
+                "prev_cursor": prev_cursor,
+                "total_count": total_count,
+                "page_size": safe_page_size,
+            }
+
+        projects = self.list_projects(limit=500)
+        if not projects:
+            raise ValueError("No projects available for this user/workspace in Plane")
+
+        if len(projects) == 1:
+            single_project_id = str(projects[0].get("id", "")).strip()
+            if not single_project_id:
+                raise ValueError("Could not auto-resolve project id")
+            return self.list_tasks_paginated(
+                status=status,
+                assignee=assignee,
+                limit=safe_limit,
+                cursor=cursor,
+                page_size=safe_page_size,
+                project_id=single_project_id,
+            )
+
+        per_project_limit = max(
+            1, min(safe_page_size, (safe_limit + len(projects) - 1) // len(projects))
+        )
+        tasks: list[dict[str, Any]] = []
+        for project in projects:
+            current_project_id = str(project.get("id", "")).strip()
+            if not current_project_id:
+                continue
+            payload = self._request(
+                "GET",
+                self._issues_path(project_id=current_project_id),
+                query_params={"limit": per_project_limit},
+            )
+            issues = self._safe_results(payload)
+            tasks.extend(
+                [
+                    self._from_plane_issue(issue, project_id=current_project_id)
+                    for issue in issues
+                ]
+            )
+
+        tasks.sort(
+            key=lambda task: str(
+                task.get("updated_at") or task.get("created_at") or ""
+            ),
+            reverse=True,
+        )
+        capped = _filter_and_cap(tasks)
+
         return {
             "tasks": capped,
             "count": len(capped),
-            "next_cursor": next_cursor,
-            "prev_cursor": prev_cursor,
-            "total_count": total_count,
+            "next_cursor": None,
+            "prev_cursor": None,
+            "total_count": len(tasks),
             "page_size": safe_page_size,
+            "project_scope": "workspace",
+            "warning": "Workspace-wide mode without project_id. Results are merged from multiple projects.",
         }
 
     def get_task(self, task_id: str, project_id: str | None = None) -> dict[str, Any]:
