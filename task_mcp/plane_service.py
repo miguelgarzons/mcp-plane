@@ -22,9 +22,13 @@ class PlaneTaskService:
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.workspace_slug = workspace_slug
-        self.project_id = project_id.strip() if isinstance(project_id, str) and project_id.strip() else None
+        self.project_id = (
+            project_id.strip()
+            if isinstance(project_id, str) and project_id.strip()
+            else None
+        )
         self.timeout_seconds = timeout_seconds
-        self._min_request_interval_seconds = 0.25
+        self._min_request_interval_seconds = 1.0
         self._last_request_ts = 0.0
         self._member_lookup: dict[str, dict[str, Any]] = {}
         self._project_member_ids_cache: dict[str, set[str] | None] = {}
@@ -46,7 +50,7 @@ class PlaneTaskService:
     ) -> Any:
         url = f"{self.base_url}{path}"
         attempts = 0
-        max_attempts = 5
+        max_attempts = 7
         while True:
             now = time.monotonic()
             wait = self._min_request_interval_seconds - (now - self._last_request_ts)
@@ -67,7 +71,9 @@ class PlaneTaskService:
 
             attempts += 1
             if attempts >= max_attempts:
-                raise ValueError(f"Plane API error ({response.status_code}): {response.text}")
+                raise ValueError(
+                    f"Plane API error ({response.status_code}): {response.text}"
+                )
 
             retry_after = response.headers.get("Retry-After")
             sleep_seconds = 1.0
@@ -78,10 +84,12 @@ class PlaneTaskService:
                     sleep_seconds = 1.0
             else:
                 sleep_seconds = float(2**attempts)
-            time.sleep(min(sleep_seconds, 8.0))
+            time.sleep(min(sleep_seconds, 60.0))
 
         if response.status_code >= 400:
-            raise ValueError(f"Plane API error ({response.status_code}): {response.text}")
+            raise ValueError(
+                f"Plane API error ({response.status_code}): {response.text}"
+            )
         if not response.content:
             return {}
         return response.json()
@@ -96,7 +104,9 @@ class PlaneTaskService:
             return ""
         raw_group = state.get("group") or state.get("type") or state.get("state_group")
         if isinstance(raw_group, dict):
-            raw_group = raw_group.get("name") or raw_group.get("key") or raw_group.get("value")
+            raw_group = (
+                raw_group.get("name") or raw_group.get("key") or raw_group.get("value")
+            )
         return PlaneTaskService._normalize(raw_group)
 
     @staticmethod
@@ -126,7 +136,9 @@ class PlaneTaskService:
             return "cancelled"
         return None
 
-    def _resolve_status_from_state_id(self, state_id: str, project_id: str | None = None) -> Status | None:
+    def _resolve_status_from_state_id(
+        self, state_id: str, project_id: str | None = None
+    ) -> Status | None:
         payload = self._request("GET", self._states_path(project_id=project_id))
         states = self._safe_results(payload)
         for state in states:
@@ -146,15 +158,26 @@ class PlaneTaskService:
         return []
 
     def _effective_project_id(self, project_id: str | None = None) -> str:
-        effective = project_id.strip() if isinstance(project_id, str) and project_id.strip() else self.project_id
+        effective = (
+            project_id.strip()
+            if isinstance(project_id, str) and project_id.strip()
+            else self.project_id
+        )
         if not effective:
             projects = self.list_projects(limit=200)
             if not projects:
-                raise ValueError("No projects available for this user/workspace in Plane")
-            effective = str(projects[0].get("id", "")).strip()
-            if not effective:
-                raise ValueError("Could not auto-resolve default project")
-            self.project_id = effective
+                raise ValueError(
+                    "No projects available for this user/workspace in Plane"
+                )
+            if len(projects) == 1:
+                effective = str(projects[0].get("id", "")).strip()
+                if not effective:
+                    raise ValueError("Could not auto-resolve project id")
+                return effective
+            raise ValueError(
+                "Multiple projects available. Provide project_id explicitly in the tool call. "
+                "Use list_plane_projects to get valid project ids."
+            )
         return effective
 
     def get_active_project(self) -> dict[str, Any]:
@@ -180,7 +203,9 @@ class PlaneTaskService:
                 self.project_id = project_id
                 return project
         names = [str(project.get("name", "")).strip() for project in projects[:25]]
-        raise ValueError(f"Project not found: '{project_name}'. Available projects: {names}")
+        raise ValueError(
+            f"Project not found: '{project_name}'. Available projects: {names}"
+        )
 
     def _states_path(self, project_id: str | None = None) -> str:
         effective = self._effective_project_id(project_id)
@@ -258,7 +283,9 @@ class PlaneTaskService:
             for s in states
             if s.get("id")
         ]
-        raise ValueError(f"Could not resolve Plane state id for '{status}'. Available states: {available}")
+        raise ValueError(
+            f"Could not resolve Plane state id for '{status}'. Available states: {available}"
+        )
 
     @staticmethod
     def _map_priority(priority: Priority) -> str:
@@ -308,7 +335,11 @@ class PlaneTaskService:
 
     @staticmethod
     def _has_assignee(task: dict[str, Any], expected_values: list[str]) -> bool:
-        wanted = {value.strip().lower() for value in expected_values if isinstance(value, str) and value.strip()}
+        wanted = {
+            value.strip().lower()
+            for value in expected_values
+            if isinstance(value, str) and value.strip()
+        }
         if not wanted:
             return True
         current = str(task.get("assignee", "")).strip().lower()
@@ -330,21 +361,39 @@ class PlaneTaskService:
                     str(item.get("email", "")).strip().lower(),
                     str(item.get("id", "")).strip().lower(),
                 ]
-                if any(any(w == value or w in value for w in wanted) for value in values if value):
+                if any(
+                    any(w == value or w in value for w in wanted)
+                    for value in values
+                    if value
+                ):
                     return True
         return False
 
     @staticmethod
-    def _has_labels(task: dict[str, Any], label_ids: list[str] | None, label_names: list[str] | None) -> bool:
-        actual_ids = {str(label.get("id", "")).strip() for label in task.get("labels", []) if isinstance(label, dict)}
+    def _has_labels(
+        task: dict[str, Any], label_ids: list[str] | None, label_names: list[str] | None
+    ) -> bool:
+        actual_ids = {
+            str(label.get("id", "")).strip()
+            for label in task.get("labels", [])
+            if isinstance(label, dict)
+        }
         actual_names = {
-            str(label.get("name", "")).strip().lower() for label in task.get("labels", []) if isinstance(label, dict)
+            str(label.get("name", "")).strip().lower()
+            for label in task.get("labels", [])
+            if isinstance(label, dict)
         }
         external = task.get("external")
         if isinstance(external, dict):
             external_label_ids = external.get("label_ids")
             if isinstance(external_label_ids, list):
-                actual_ids.update({str(item).strip() for item in external_label_ids if str(item).strip()})
+                actual_ids.update(
+                    {
+                        str(item).strip()
+                        for item in external_label_ids
+                        if str(item).strip()
+                    }
+                )
             external_labels = external.get("labels")
             if isinstance(external_labels, list):
                 for item in external_labels:
@@ -362,11 +411,17 @@ class PlaneTaskService:
                     if label_name:
                         actual_names.add(label_name)
         if label_ids:
-            wanted_ids = {str(value).strip() for value in label_ids if str(value).strip()}
+            wanted_ids = {
+                str(value).strip() for value in label_ids if str(value).strip()
+            }
             if not wanted_ids.issubset(actual_ids):
                 return False
         if label_names:
-            wanted_names = {str(value).strip().lower() for value in label_names if str(value).strip()}
+            wanted_names = {
+                str(value).strip().lower()
+                for value in label_names
+                if str(value).strip()
+            }
             if not wanted_names.issubset(actual_names):
                 return False
         return True
@@ -402,10 +457,16 @@ class PlaneTaskService:
                 return latest
         return latest
 
-    def _from_plane_issue(self, issue: dict[str, Any], project_id: str | None = None) -> dict[str, Any]:
+    def _from_plane_issue(
+        self, issue: dict[str, Any], project_id: str | None = None
+    ) -> dict[str, Any]:
         state = issue.get("state")
-        state_name = self._normalize(state.get("name") if isinstance(state, dict) else "")
-        state_group = self._extract_state_group(state if isinstance(state, dict) else None)
+        state_name = self._normalize(
+            state.get("name") if isinstance(state, dict) else ""
+        )
+        state_group = self._extract_state_group(
+            state if isinstance(state, dict) else None
+        )
 
         status = self._map_status_from_name_group(state_name, state_group)
         if not status and isinstance(state, str) and state.strip():
@@ -418,19 +479,26 @@ class PlaneTaskService:
         if isinstance(assignees, list) and assignees:
             first = assignees[0]
             if isinstance(first, dict):
-                assignee = first.get("display_name") or first.get("email") or first.get("id")
+                assignee = (
+                    first.get("display_name") or first.get("email") or first.get("id")
+                )
             elif isinstance(first, str) and first.strip():
                 self._ensure_member_lookup()
                 member = self._member_lookup.get(first.strip())
                 if isinstance(member, dict):
-                    assignee = member.get("email") or member.get("display_name") or first.strip()
+                    assignee = (
+                        member.get("email")
+                        or member.get("display_name")
+                        or first.strip()
+                    )
                 else:
                     assignee = first.strip()
 
         return {
             "id": issue.get("id"),
             "title": issue.get("name", ""),
-            "description": issue.get("description_html") or issue.get("description_stripped", ""),
+            "description": issue.get("description_html")
+            or issue.get("description_stripped", ""),
             "status": status,
             "priority": issue.get("priority", "medium"),
             "assignee": assignee,
@@ -468,7 +536,9 @@ class PlaneTaskService:
             payload["start_date"] = start_date.strip()
         if isinstance(due_date, str) and due_date.strip():
             payload["target_date"] = due_date.strip()
-        issue = self._request("POST", self._issues_path(project_id=project_id), json_payload=payload)
+        issue = self._request(
+            "POST", self._issues_path(project_id=project_id), json_payload=payload
+        )
         created = self._from_plane_issue(issue, project_id=project_id)
         if start_date or due_date:
             created = self.update_task_dates(
@@ -478,7 +548,9 @@ class PlaneTaskService:
                 project_id=project_id,
             )
         if assignee:
-            created = self.assign_task(task_id=str(created["id"]), assignee=assignee, project_id=project_id)
+            created = self.assign_task(
+                task_id=str(created["id"]), assignee=assignee, project_id=project_id
+            )
         elif created.get("assignee"):
             created = self._from_plane_issue(
                 self._request(
@@ -503,7 +575,7 @@ class PlaneTaskService:
         assignee: str | None = None,
         limit: int = 50,
         cursor: str | None = None,
-        page_size: int = 50,
+        page_size: int = 20,
         project_id: str | None = None,
     ) -> list[dict[str, Any]]:
         page = self.list_tasks_paginated(
@@ -522,7 +594,7 @@ class PlaneTaskService:
         assignee: str | None = None,
         limit: int = 50,
         cursor: str | None = None,
-        page_size: int = 50,
+        page_size: int = 20,
         project_id: str | None = None,
     ) -> dict[str, Any]:
         safe_page_size = max(1, min(page_size, 100))
@@ -530,9 +602,13 @@ class PlaneTaskService:
         if isinstance(cursor, str) and cursor.strip():
             query["cursor"] = cursor.strip()
 
-        payload = self._request("GET", self._issues_path(project_id=project_id), query_params=query)
+        payload = self._request(
+            "GET", self._issues_path(project_id=project_id), query_params=query
+        )
         issues = self._safe_results(payload)
-        tasks = [self._from_plane_issue(issue, project_id=project_id) for issue in issues]
+        tasks = [
+            self._from_plane_issue(issue, project_id=project_id) for issue in issues
+        ]
 
         filtered = tasks
         if status:
@@ -542,7 +618,8 @@ class PlaneTaskService:
             filtered = [
                 task
                 for task in filtered
-                if isinstance(task.get("assignee"), str) and task["assignee"].strip().lower() == assignee_lower
+                if isinstance(task.get("assignee"), str)
+                and task["assignee"].strip().lower() == assignee_lower
             ]
 
         capped = filtered[: max(1, min(limit, 500))]
@@ -559,7 +636,9 @@ class PlaneTaskService:
         }
 
     def get_task(self, task_id: str, project_id: str | None = None) -> dict[str, Any]:
-        issue = self._request("GET", self._issue_path(task_id.strip(), project_id=project_id))
+        issue = self._request(
+            "GET", self._issue_path(task_id.strip(), project_id=project_id)
+        )
         return self._from_plane_issue(issue, project_id=project_id)
 
     def update_task_status(
@@ -588,7 +667,9 @@ class PlaneTaskService:
         del actor
         raw_assignee = assignee.strip()
         if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", raw_assignee):
-            raise ValueError("Assignee must be an email address (example: user@domain.com)")
+            raise ValueError(
+                "Assignee must be an email address (example: user@domain.com)"
+            )
         resolved_values = [raw_assignee]
         resolved_user_id: str | None = None
 
@@ -610,7 +691,10 @@ class PlaneTaskService:
             )
 
         project_member_ids = self._get_project_member_ids(project_id=project_id)
-        if project_member_ids is not None and resolved_user_id not in project_member_ids:
+        if (
+            project_member_ids is not None
+            and resolved_user_id not in project_member_ids
+        ):
             raise ValueError(
                 "User is not a member of the active project. "
                 "Use list_project_users to choose a valid assignee for this project."
@@ -657,7 +741,9 @@ class PlaneTaskService:
                     try:
                         self._request(
                             "PATCH",
-                            self._assignees_path(task_id.strip(), project_id=project_id),
+                            self._assignees_path(
+                                task_id.strip(), project_id=project_id
+                            ),
                             json_payload=assignee_payload,
                         )
                     except Exception as exc:  # noqa: BLE001
@@ -698,7 +784,11 @@ class PlaneTaskService:
             self._comments_path(task_id.strip(), project_id=project_id),
             json_payload=payload,
         )
-        created_comment_id = str(comment_response.get("id", "")).strip() if isinstance(comment_response, dict) else ""
+        created_comment_id = (
+            str(comment_response.get("id", "")).strip()
+            if isinstance(comment_response, dict)
+            else ""
+        )
 
         confirmed = False
         if created_comment_id:
@@ -709,7 +799,11 @@ class PlaneTaskService:
                     cursor=None,
                     project_id=project_id,
                 )
-                comments = comments_page.get("comments") if isinstance(comments_page, dict) else []
+                comments = (
+                    comments_page.get("comments")
+                    if isinstance(comments_page, dict)
+                    else []
+                )
                 if isinstance(comments, list) and any(
                     str(item.get("id", "")).strip() == created_comment_id
                     for item in comments
@@ -725,7 +819,9 @@ class PlaneTaskService:
                 "Try again in a few seconds."
             )
 
-        issue = self._request("GET", self._issue_path(task_id.strip(), project_id=project_id))
+        issue = self._request(
+            "GET", self._issue_path(task_id.strip(), project_id=project_id)
+        )
         task = self._from_plane_issue(issue, project_id=project_id)
         task["comment_sent"] = True
         task["comment_text"] = comment.strip()
@@ -757,12 +853,16 @@ class PlaneTaskService:
             actor = item.get("created_by")
             actor_name = None
             if isinstance(actor, dict):
-                actor_name = actor.get("display_name") or actor.get("email") or actor.get("id")
+                actor_name = (
+                    actor.get("display_name") or actor.get("email") or actor.get("id")
+                )
             comments.append(
                 {
                     "id": item.get("id"),
                     "author": actor_name or actor,
-                    "text": item.get("comment_stripped") or item.get("comment_html") or "",
+                    "text": item.get("comment_stripped")
+                    or item.get("comment_html")
+                    or "",
                     "created_at": item.get("created_at"),
                     "external": item,
                 }
@@ -788,10 +888,18 @@ class PlaneTaskService:
     ) -> dict[str, Any]:
         del actor
         payload: dict[str, Any] = {
-            "start_date": start_date.strip() if isinstance(start_date, str) and start_date.strip() else None,
-            "target_date": due_date.strip() if isinstance(due_date, str) and due_date.strip() else None,
+            "start_date": start_date.strip()
+            if isinstance(start_date, str) and start_date.strip()
+            else None,
+            "target_date": due_date.strip()
+            if isinstance(due_date, str) and due_date.strip()
+            else None,
         }
-        issue = self._request("PATCH", self._issue_path(task_id.strip(), project_id=project_id), json_payload=payload)
+        issue = self._request(
+            "PATCH",
+            self._issue_path(task_id.strip(), project_id=project_id),
+            json_payload=payload,
+        )
         return self._from_plane_issue(issue, project_id=project_id)
 
     def list_states(self, project_id: str | None = None) -> list[dict[str, Any]]:
@@ -807,7 +915,9 @@ class PlaneTaskService:
             if state.get("id")
         ]
 
-    def list_labels(self, limit: int = 200, project_id: str | None = None) -> list[dict[str, Any]]:
+    def list_labels(
+        self, limit: int = 200, project_id: str | None = None
+    ) -> list[dict[str, Any]]:
         payload = self._request("GET", self._labels_path(project_id=project_id))
         labels = self._safe_results(payload)
         normalized = [
@@ -821,11 +931,15 @@ class PlaneTaskService:
         ]
         return normalized[: max(1, min(limit, 500))]
 
-    def create_label(self, name: str, color: str | None = None, project_id: str | None = None) -> dict[str, Any]:
+    def create_label(
+        self, name: str, color: str | None = None, project_id: str | None = None
+    ) -> dict[str, Any]:
         payload: dict[str, Any] = {"name": name.strip()}
         if isinstance(color, str) and color.strip():
             payload["color"] = color.strip()
-        label = self._request("POST", self._labels_path(project_id=project_id), json_payload=payload)
+        label = self._request(
+            "POST", self._labels_path(project_id=project_id), json_payload=payload
+        )
         return {
             "id": label.get("id"),
             "name": label.get("name", ""),
@@ -846,13 +960,19 @@ class PlaneTaskService:
                     resolved.add(cleaned)
 
         if label_names:
-            names = {self._normalize(name) for name in label_names if isinstance(name, str) and name.strip()}
+            names = {
+                self._normalize(name)
+                for name in label_names
+                if isinstance(name, str) and name.strip()
+            }
             if names:
                 labels = self.list_labels(limit=500, project_id=project_id)
                 for label in labels:
                     if self._normalize(label.get("name")) in names and label.get("id"):
                         resolved.add(str(label["id"]))
-                missing = names - {self._normalize(label.get("name")) for label in labels}
+                missing = names - {
+                    self._normalize(label.get("name")) for label in labels
+                }
                 if missing:
                     raise ValueError(f"Label names not found: {sorted(missing)}")
 
@@ -880,7 +1000,9 @@ class PlaneTaskService:
             return latest
 
         current = self.get_task(task_id=task_id.strip(), project_id=project_id)
-        if self._has_labels(current, label_ids=resolved_label_ids, label_names=label_names):
+        if self._has_labels(
+            current, label_ids=resolved_label_ids, label_names=label_names
+        ):
             current["labels_noop"] = True
             return current
 
@@ -904,7 +1026,9 @@ class PlaneTaskService:
                     label_names=label_names,
                 ),
             )
-            if self._has_labels(refreshed, label_ids=resolved_label_ids, label_names=label_names):
+            if self._has_labels(
+                refreshed, label_ids=resolved_label_ids, label_names=label_names
+            ):
                 return refreshed
             fallback = refreshed
         except Exception as exc:  # noqa: BLE001
@@ -920,7 +1044,9 @@ class PlaneTaskService:
         fallback["labels_payload"] = payload
         return fallback
 
-    def list_cycles(self, limit: int = 200, project_id: str | None = None) -> list[dict[str, Any]]:
+    def list_cycles(
+        self, limit: int = 200, project_id: str | None = None
+    ) -> list[dict[str, Any]]:
         payload = self._request("GET", self._cycles_path(project_id=project_id))
         cycles = self._safe_results(payload)
         normalized = [
@@ -941,8 +1067,16 @@ class PlaneTaskService:
         cycle_id: str | None = None,
         project_id: str | None = None,
     ) -> dict[str, Any]:
-        payload: dict[str, Any] = {"cycle_id": cycle_id.strip() if isinstance(cycle_id, str) and cycle_id.strip() else None}
-        issue = self._request("PATCH", self._issue_path(task_id.strip(), project_id=project_id), json_payload=payload)
+        payload: dict[str, Any] = {
+            "cycle_id": cycle_id.strip()
+            if isinstance(cycle_id, str) and cycle_id.strip()
+            else None
+        }
+        issue = self._request(
+            "PATCH",
+            self._issue_path(task_id.strip(), project_id=project_id),
+            json_payload=payload,
+        )
         return self._from_plane_issue(issue, project_id=project_id)
 
     def list_projects(self, limit: int = 200) -> list[dict[str, Any]]:
@@ -1049,7 +1183,11 @@ class PlaneTaskService:
         for member in members:
             if not isinstance(member, dict):
                 continue
-            user = member.get("member") if isinstance(member.get("member"), dict) else member
+            user = (
+                member.get("member")
+                if isinstance(member.get("member"), dict)
+                else member
+            )
             if not isinstance(user, dict):
                 continue
             normalized.append(
@@ -1103,7 +1241,9 @@ class PlaneTaskService:
         self._project_member_ids_cache[effective] = None
         return None
 
-    def list_project_users(self, limit: int = 200, project_id: str | None = None) -> dict[str, Any]:
+    def list_project_users(
+        self, limit: int = 200, project_id: str | None = None
+    ) -> dict[str, Any]:
         members = self.list_members(limit=500)
         project_member_ids = self._get_project_member_ids(project_id=project_id)
         if project_member_ids is None:
@@ -1115,7 +1255,11 @@ class PlaneTaskService:
                 "warning": "Could not resolve project membership from API; showing workspace users.",
             }
 
-        filtered = [member for member in members if str(member.get("id", "")).strip() in project_member_ids]
+        filtered = [
+            member
+            for member in members
+            if str(member.get("id", "")).strip() in project_member_ids
+        ]
         capped = filtered[: max(1, min(limit, 500))]
         return {
             "users": capped,
@@ -1123,7 +1267,9 @@ class PlaneTaskService:
             "project_filter_applied": True,
         }
 
-    def list_assignable_users(self, query: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
+    def list_assignable_users(
+        self, query: str | None = None, limit: int = 200
+    ) -> list[dict[str, Any]]:
         members = self.list_members(limit=500)
         if query and query.strip():
             needle = query.strip().lower()
@@ -1147,7 +1293,9 @@ class PlaneTaskService:
         limit: int = 50,
         project_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        tasks = self.list_tasks(status=status, assignee=assignee, limit=500, project_id=project_id)
+        tasks = self.list_tasks(
+            status=status, assignee=assignee, limit=500, project_id=project_id
+        )
         filtered = tasks
 
         if query and query.strip():
@@ -1155,10 +1303,13 @@ class PlaneTaskService:
             filtered = [
                 task
                 for task in filtered
-                if needle in str(task.get("title", "")).lower() or needle in str(task.get("description", "")).lower()
+                if needle in str(task.get("title", "")).lower()
+                or needle in str(task.get("description", "")).lower()
             ]
 
-        def _in_range(value: str | None, min_date: str | None, max_date: str | None) -> bool:
+        def _in_range(
+            value: str | None, min_date: str | None, max_date: str | None
+        ) -> bool:
             if not value:
                 return False if (min_date or max_date) else True
             try:
@@ -1200,9 +1351,15 @@ class PlaneTaskService:
     ) -> dict[str, Any]:
         updated: list[dict[str, Any]] = []
         errors: list[dict[str, Any]] = []
-        state_id = self._resolve_state_id(new_status, project_id=project_id) if new_status else None
+        state_id = (
+            self._resolve_state_id(new_status, project_id=project_id)
+            if new_status
+            else None
+        )
         resolved_labels = (
-            self._resolve_label_ids(label_ids=label_ids, label_names=None, project_id=project_id)
+            self._resolve_label_ids(
+                label_ids=label_ids, label_names=None, project_id=project_id
+            )
             if label_ids is not None
             else None
         )
@@ -1217,9 +1374,17 @@ class PlaneTaskService:
             if assignee and assignee.strip():
                 payload["assignee_names"] = [assignee.strip()]
             if start_date is not None:
-                payload["start_date"] = start_date.strip() if isinstance(start_date, str) and start_date.strip() else None
+                payload["start_date"] = (
+                    start_date.strip()
+                    if isinstance(start_date, str) and start_date.strip()
+                    else None
+                )
             if due_date is not None:
-                payload["target_date"] = due_date.strip() if isinstance(due_date, str) and due_date.strip() else None
+                payload["target_date"] = (
+                    due_date.strip()
+                    if isinstance(due_date, str) and due_date.strip()
+                    else None
+                )
             if not payload:
                 if resolved_labels is None:
                     errors.append({"task_id": task_id, "error": "No fields to update"})
@@ -1228,7 +1393,11 @@ class PlaneTaskService:
             try:
                 task_result = self.get_task(task_id, project_id=project_id)
                 if payload:
-                    issue = self._request("PATCH", self._issue_path(task_id, project_id=project_id), json_payload=payload)
+                    issue = self._request(
+                        "PATCH",
+                        self._issue_path(task_id, project_id=project_id),
+                        json_payload=payload,
+                    )
                     task_result = self._from_plane_issue(issue, project_id=project_id)
 
                 if resolved_labels is not None:
@@ -1259,7 +1428,9 @@ class PlaneTaskService:
         del actor
         cleaned_task_id = task_id.strip()
         try:
-            self._request("DELETE", self._issue_path(cleaned_task_id, project_id=project_id))
+            self._request(
+                "DELETE", self._issue_path(cleaned_task_id, project_id=project_id)
+            )
         except Exception as exc:  # noqa: BLE001
             return {"task_id": cleaned_task_id, "deleted": False, "error": str(exc)}
 

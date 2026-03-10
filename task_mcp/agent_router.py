@@ -36,14 +36,24 @@ class PlaneAgentRouter:
 
     @staticmethod
     def _memory_key(user_id: str | None) -> str:
-        return user_id.strip().lower() if isinstance(user_id, str) and user_id.strip() else "__default__"
+        return (
+            user_id.strip().lower()
+            if isinstance(user_id, str) and user_id.strip()
+            else "__default__"
+        )
 
     def _remember_tasks(self, user_id: str | None, tasks: list[dict[str, Any]]) -> None:
         memory = self._memory.setdefault(self._memory_key(user_id), {})
-        memory["last_list_ids"] = [str(task.get("id", "")).strip() for task in tasks if task.get("id")][:50]
+        memory["last_list_ids"] = [
+            str(task.get("id", "")).strip() for task in tasks if task.get("id")
+        ][:50]
         if tasks and tasks[0].get("id"):
             memory["last_task_id"] = str(tasks[0]["id"])
-        if tasks and tasks[0].get("external") and isinstance(tasks[0]["external"], dict):
+        if (
+            tasks
+            and tasks[0].get("external")
+            and isinstance(tasks[0]["external"], dict)
+        ):
             ext = tasks[0]["external"]
             project_id = ext.get("project_id") or ext.get("project")
             if isinstance(project_id, str) and project_id.strip():
@@ -75,11 +85,12 @@ class PlaneAgentRouter:
         cleaned = re.sub(r"\s+", " ", cleaned)
         return hint, cleaned
 
-    def _resolve_project_id(self, service: Any, user_id: str | None, project_hint: str | None = None) -> str | None:
+    def _resolve_project_id(
+        self, service: Any, user_id: str | None, project_hint: str | None = None
+    ) -> str | None:
         if not hasattr(service, "list_projects"):
             return None
 
-        memory = self._memory.get(self._memory_key(user_id), {})
         projects = service.list_projects(limit=500)
         if not projects:
             raise ValueError("No projects available for this user in Plane")
@@ -93,36 +104,20 @@ class PlaneAgentRouter:
                 if not project_id:
                     continue
                 if hint == project_id.lower() or hint == identifier or hint in name:
-                    memory["last_project_id"] = project_id
-                    self._memory[self._memory_key(user_id)] = memory
                     return project_id
             raise ValueError(f"Project not found for hint '{project_hint}'")
 
-        last_project_id = str(memory.get("last_project_id", "")).strip()
-        if last_project_id:
-            return last_project_id
-
-        configured = str(getattr(service, "project_id", "") or "").strip()
-        if configured:
-            memory["last_project_id"] = configured
-            self._memory[self._memory_key(user_id)] = memory
-            return configured
-
         if len(projects) == 1 and projects[0].get("id"):
-            selected = str(projects[0]["id"])
-            memory["last_project_id"] = selected
-            self._memory[self._memory_key(user_id)] = memory
-            return selected
+            return str(projects[0]["id"])
 
-        selected = str(projects[0].get("id", "")).strip()
-        if selected:
-            memory["last_project_id"] = selected
-            self._memory[self._memory_key(user_id)] = memory
-            return selected
+        raise ValueError(
+            "Multiple projects found. Specify project in command (e.g. 'proyecto: nombre_o_id') "
+            "or use structured tools with project_id."
+        )
 
-        raise ValueError("Could not auto-select a project from workspace")
-
-    def _resolve_task_reference(self, service: Any, reference: str, user_id: str | None) -> str:
+    def _resolve_task_reference(
+        self, service: Any, reference: str, user_id: str | None
+    ) -> str:
         ref = reference.strip()
         if not ref:
             raise ValueError("Task reference is required")
@@ -132,7 +127,14 @@ class PlaneAgentRouter:
 
         memory = self._memory.get(self._memory_key(user_id), {})
         lowered = ref.lower()
-        if lowered in {"esa tarea", "la tarea", "ultima", "última", "last", "last task"}:
+        if lowered in {
+            "esa tarea",
+            "la tarea",
+            "ultima",
+            "última",
+            "last",
+            "last task",
+        }:
             last_task_id = memory.get("last_task_id")
             if not last_task_id:
                 raise ValueError("No previous task in context. Use a task id.")
@@ -145,7 +147,11 @@ class PlaneAgentRouter:
                 return str(list_ids[index])
             raise ValueError("Task reference index is out of range")
 
-        project_id = self._resolve_project_id(service, user_id) if hasattr(service, "list_projects") else None
+        project_id = (
+            self._resolve_project_id(service, user_id)
+            if hasattr(service, "list_projects")
+            else None
+        )
 
         if hasattr(service, "search_tasks"):
             matches = service.search_tasks(query=ref, limit=5, project_id=project_id)
@@ -160,14 +166,24 @@ class PlaneAgentRouter:
             return str(matches[0]["id"])
         if len(matches) > 1:
             options = [f"{task.get('id')}: {task.get('title', '')}" for task in matches]
-            raise ValueError(f"Ambiguous task reference '{reference}'. Matches: {options}")
+            raise ValueError(
+                f"Ambiguous task reference '{reference}'. Matches: {options}"
+            )
 
         raise ValueError(f"Could not resolve task reference: {reference}")
 
     @staticmethod
     def _extract_dates(text: str) -> tuple[str | None, str | None, str]:
-        start_match = re.search(r"(?:inicio|start)\s*(?:=|:)?\s*(\d{4}-\d{2}-\d{2})", text, flags=re.IGNORECASE)
-        due_match = re.search(r"(?:fin|vencimiento|due)\s*(?:=|:)?\s*(\d{4}-\d{2}-\d{2})", text, flags=re.IGNORECASE)
+        start_match = re.search(
+            r"(?:inicio|start)\s*(?:=|:)?\s*(\d{4}-\d{2}-\d{2})",
+            text,
+            flags=re.IGNORECASE,
+        )
+        due_match = re.search(
+            r"(?:fin|vencimiento|due)\s*(?:=|:)?\s*(\d{4}-\d{2}-\d{2})",
+            text,
+            flags=re.IGNORECASE,
+        )
         start_date = start_match.group(1) if start_match else None
         due_date = due_match.group(1) if due_match else None
 
@@ -178,7 +194,9 @@ class PlaneAgentRouter:
             cleaned = cleaned.replace(due_match.group(0), " ")
         return start_date, due_date, re.sub(r"\s+", " ", cleaned).strip(" ,")
 
-    def handle(self, command: str, user_id: str | None = None, actor: str = "mcp-bot") -> dict[str, Any]:
+    def handle(
+        self, command: str, user_id: str | None = None, actor: str = "mcp-bot"
+    ) -> dict[str, Any]:
         service = self.resolve_service(user_id)
         cleaned = command.strip()
         if not cleaned:
@@ -192,7 +210,11 @@ class PlaneAgentRouter:
         if create_match:
             raw = create_match.group(1).strip()
             project_hint, raw = self._extract_project_hint(raw)
-            assignee_match = re.search(r"(?:asignad[oa]?\s+a|asignar\s+a)\s+([\w.\-@]+)", raw, flags=re.IGNORECASE)
+            assignee_match = re.search(
+                r"(?:asignad[oa]?\s+a|asignar\s+a)\s+([\w.\-@]+)",
+                raw,
+                flags=re.IGNORECASE,
+            )
             assignee = assignee_match.group(1) if assignee_match else None
             if assignee_match:
                 raw = raw.replace(assignee_match.group(0), " ")
@@ -200,7 +222,9 @@ class PlaneAgentRouter:
             title = raw.strip().strip('"')
             if not title:
                 raise ValueError("Title is required to create a task")
-            project_id = self._resolve_project_id(service, user_id, project_hint=project_hint)
+            project_id = self._resolve_project_id(
+                service, user_id, project_hint=project_hint
+            )
             if hasattr(service, "list_projects"):
                 task = service.create_task(
                     title=title,
@@ -239,7 +263,9 @@ class PlaneAgentRouter:
                     project_id=project_id,
                 )
             else:
-                task = service.update_task_status(task_id=task_id, new_status=target_status, actor=actor)
+                task = service.update_task_status(
+                    task_id=task_id, new_status=target_status, actor=actor
+                )
             self._remember_task(user_id, task)
             return {"action": "update_task_status", "task": task}
 
@@ -254,9 +280,16 @@ class PlaneAgentRouter:
             task_id = self._resolve_task_reference(service, reference, user_id)
             project_id = self._resolve_project_id(service, user_id)
             if hasattr(service, "list_projects"):
-                task = service.assign_task(task_id=task_id, assignee=assignee, actor=actor, project_id=project_id)
+                task = service.assign_task(
+                    task_id=task_id,
+                    assignee=assignee,
+                    actor=actor,
+                    project_id=project_id,
+                )
             else:
-                task = service.assign_task(task_id=task_id, assignee=assignee, actor=actor)
+                task = service.assign_task(
+                    task_id=task_id, assignee=assignee, actor=actor
+                )
             self._remember_task(user_id, task)
             return {"action": "assign_task", "task": task}
 
@@ -271,9 +304,16 @@ class PlaneAgentRouter:
             task_id = self._resolve_task_reference(service, reference, user_id)
             project_id = self._resolve_project_id(service, user_id)
             if hasattr(service, "list_projects"):
-                task = service.add_comment(task_id=task_id, comment=comment, author=actor, project_id=project_id)
+                task = service.add_comment(
+                    task_id=task_id,
+                    comment=comment,
+                    author=actor,
+                    project_id=project_id,
+                )
             else:
-                task = service.add_comment(task_id=task_id, comment=comment, author=actor)
+                task = service.add_comment(
+                    task_id=task_id, comment=comment, author=actor
+                )
             self._remember_task(user_id, task)
             return {"action": "add_comment", "task": task}
 
@@ -297,25 +337,48 @@ class PlaneAgentRouter:
                     project_id=project_id,
                 )
             else:
-                task = service.update_task_dates(task_id=task_id, start_date=start_date, due_date=due_date, actor=actor)
+                task = service.update_task_dates(
+                    task_id=task_id,
+                    start_date=start_date,
+                    due_date=due_date,
+                    actor=actor,
+                )
             self._remember_task(user_id, task)
             return {"action": "update_task_dates", "task": task}
 
-        list_intent = re.search(r"\b(listar|lista|muestra|mostrar)\b", cleaned, flags=re.IGNORECASE)
+        list_intent = re.search(
+            r"\b(listar|lista|muestra|mostrar)\b", cleaned, flags=re.IGNORECASE
+        )
         if list_intent:
             project_hint, cleaned = self._extract_project_hint(cleaned)
             status: Status | None = None
-            for candidate in ["backlog", "todo", "in_progress", "done", "cancelled", "blocked"]:
-                if candidate.replace("_", " ") in cleaned.lower() or candidate in cleaned.lower():
+            for candidate in [
+                "backlog",
+                "todo",
+                "in_progress",
+                "done",
+                "cancelled",
+                "blocked",
+            ]:
+                if (
+                    candidate.replace("_", " ") in cleaned.lower()
+                    or candidate in cleaned.lower()
+                ):
                     status = candidate  # type: ignore[assignment]
                     break
 
             assignee: str | None = None
             if re.search(r"\b(mi|mis|my)\b", cleaned, flags=re.IGNORECASE):
                 assignee = user_id
-            query_match = re.search(r"(?:que\s+contenga|con\s+texto|about)\s+(.+)$", cleaned, flags=re.IGNORECASE)
+            query_match = re.search(
+                r"(?:que\s+contenga|con\s+texto|about)\s+(.+)$",
+                cleaned,
+                flags=re.IGNORECASE,
+            )
             query = query_match.group(1).strip() if query_match else None
-            project_id = self._resolve_project_id(service, user_id, project_hint=project_hint)
+            project_id = self._resolve_project_id(
+                service, user_id, project_hint=project_hint
+            )
 
             if hasattr(service, "search_tasks") and query:
                 tasks = service.search_tasks(
@@ -327,14 +390,23 @@ class PlaneAgentRouter:
                 )
             else:
                 if hasattr(service, "list_projects"):
-                    tasks = service.list_tasks(status=status, assignee=assignee, limit=50, project_id=project_id)
+                    tasks = service.list_tasks(
+                        status=status,
+                        assignee=assignee,
+                        limit=50,
+                        project_id=project_id,
+                    )
                 else:
-                    tasks = service.list_tasks(status=status, assignee=assignee, limit=50)
+                    tasks = service.list_tasks(
+                        status=status, assignee=assignee, limit=50
+                    )
 
             self._remember_tasks(user_id, tasks)
             return {"action": "list_tasks", "count": len(tasks), "tasks": tasks}
 
-        get_match = re.search(r"(?:ver|detalle|show|get)\s+(.+)$", cleaned, flags=re.IGNORECASE)
+        get_match = re.search(
+            r"(?:ver|detalle|show|get)\s+(.+)$", cleaned, flags=re.IGNORECASE
+        )
         if get_match:
             reference = get_match.group(1).strip()
             task_id = self._resolve_task_reference(service, reference, user_id)

@@ -8,6 +8,7 @@ Servidor MCP en Python para operar tareas de Plane.
 - Solo necesitas enviar `user_id` en las tools de tareas (`user_id` debe ser correo).
 - El token de Plane se registra una vez por usuario con `set_user_plane_token`.
 - `PLANE_PROJECT_ID` no se usa; el proyecto se resuelve dinamicamente desde Plane.
+- Si el usuario tiene varios proyectos, debe enviar `project_id` en la tool para elegirlo dinamicamente.
 
 
 
@@ -60,3 +61,4 @@ python server.py
 ## Tools de tareas
 
 Todas las tools de tareas aceptan `user_id` para resolver el token desde DB.
+Las tools que operan sobre issues/proyecto aceptan `project_id` opcional. Si hay multiples proyectos, enviarlo es obligatorio.
