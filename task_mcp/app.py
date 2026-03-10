@@ -90,6 +90,26 @@ def create_app() -> FastMCP:
     plane_config = _plane_runtime_config()
     credentials_store = CredentialStore(**_db_config())
     service_cache: dict[str, dict[str, Any]] = {}
+    workspace_session: dict[str, str] = {}
+
+    def _resolve_workspace_slug(
+        cleaned_user_id: str,
+        workspace_slug: str | None = None,
+    ) -> str:
+        provided = workspace_slug.strip() if isinstance(workspace_slug, str) else ""
+        if provided:
+            workspace_session[cleaned_user_id] = provided
+            return provided
+
+        remembered = workspace_session.get(cleaned_user_id, "").strip()
+        if remembered:
+            return remembered
+
+        raise ValueError(
+            "No workspace_slug active for this user. "
+            "Call set_active_workspace_slug(user_id, workspace_slug) first, "
+            "or send workspace_slug in this request."
+        )
 
     def resolve_service(
         user_id: str | None,
@@ -102,13 +122,10 @@ def create_app() -> FastMCP:
                 f"No Plane token found for user_id={cleaned_user_id}. "
                 "First call set_user_plane_token(user_id, plane_api_token)."
             )
-        resolved_workspace_slug = str(
-            workspace_slug or plane_config.get("workspace_slug") or ""
-        ).strip()
-        if not resolved_workspace_slug:
-            raise ValueError(
-                "workspace_slug is required. Pass it in the tool call (e.g. 'fs', 'cato')."
-            )
+        resolved_workspace_slug = _resolve_workspace_slug(
+            cleaned_user_id=cleaned_user_id,
+            workspace_slug=workspace_slug,
+        )
         cache_key = f"{cleaned_user_id}|{resolved_workspace_slug}"
         cached = service_cache.get(cache_key)
         if cached and cached.get("token") == credentials["api_token"]:
@@ -152,6 +169,27 @@ def create_app() -> FastMCP:
         return saved
 
     @app.tool()
+    def set_active_workspace_slug(user_id: str, workspace_slug: str) -> dict[str, str]:
+        """Set or change active workspace slug for this user session."""
+        cleaned_user_id = _require_user_email(user_id)
+        cleaned_slug = workspace_slug.strip()
+        if not cleaned_slug:
+            raise ValueError("workspace_slug is required")
+        workspace_session[cleaned_user_id] = cleaned_slug
+        return {"user_id": cleaned_user_id, "workspace_slug": cleaned_slug}
+
+    @app.tool()
+    def get_active_workspace_slug(user_id: str) -> dict[str, Any]:
+        """Get active workspace slug for this user session."""
+        cleaned_user_id = _require_user_email(user_id)
+        slug = workspace_session.get(cleaned_user_id)
+        return {
+            "user_id": cleaned_user_id,
+            "workspace_slug": slug,
+            "configured": bool(slug and str(slug).strip()),
+        }
+
+    @app.tool()
     def delete_user_plane_token(user_id: str) -> dict[str, Any]:
         """Delete stored Plane API token for a user."""
         cleaned_user_id = _require_user_email(user_id)
@@ -161,6 +199,7 @@ def create_app() -> FastMCP:
         ]
         for key in stale_keys:
             service_cache.pop(key, None)
+        workspace_session.pop(cleaned_user_id, None)
         return {"user_id": cleaned_user_id, "deleted": deleted}
 
     @app.tool()
