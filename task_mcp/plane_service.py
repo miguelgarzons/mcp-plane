@@ -161,7 +161,7 @@ class PlaneTaskService:
         effective = (
             project_id.strip()
             if isinstance(project_id, str) and project_id.strip()
-            else self.project_id
+            else ""
         )
         if not effective:
             projects = self.list_projects(limit=200)
