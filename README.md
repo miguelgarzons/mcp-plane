@@ -7,7 +7,7 @@ Servidor MCP en Python para operar tareas de Plane.
 - Las credenciales por usuario se guardan en PostgreSQL.
 - Solo necesitas enviar `user_id` en las tools de tareas (`user_id` debe ser correo).
 - Siempre debes enviar `user_id` explicitamente; el servidor no infiere usuario activo.
-- El token de Plane se registra por usuario con `set_user_plane_token(user_id, plane_api_token)`.
+- El token se valida por `user_id` y debe existir previamente en DB (registro via MCP deshabilitado).
 - El `workspace_slug` llega dinamico en cada llamada (igual que `project_id`), no se guarda en DB.
 - Al iniciar una sesion por primera vez, define slug con `set_active_workspace_slug(user_id, workspace_slug)`.
 - Puedes cambiar de slug en cualquier momento con la misma tool.
@@ -52,13 +52,14 @@ python server.py
 
 ## Flujo recomendado
 
-1. Registrar token por usuario:
-   - `set_user_plane_token(user_id, plane_api_token)`
-2. Trabajar tareas enviando `user_id` y `workspace_slug` (y `project_id` cuando aplique).
+1. Verificar token por usuario:
+   - `get_user_token_status(user_id)`
+2. Definir slug activo:
+   - `set_active_workspace_slug(user_id, workspace_slug)`
+3. Trabajar tareas enviando `user_id` y `workspace_slug` (y `project_id` cuando aplique).
 
 ## Tools de credenciales
 
-- `set_user_plane_token(user_id, plane_api_token)`
 - `get_user_token_status(user_id)`
 - `set_active_workspace_slug(user_id, workspace_slug)`
 - `get_active_workspace_slug(user_id)`
@@ -69,7 +70,4 @@ python server.py
 
 Todas las tools de tareas aceptan `user_id` para resolver el token desde DB.
 Las tools tambien aceptan `workspace_slug` dinamico por llamada.
-Si no envias `workspace_slug`, se usa el slug activo de la sesion del usuario.
 Las tools que operan sobre issues/proyecto aceptan `project_id` opcional. Si hay multiples proyectos, enviarlo es obligatorio.
-
-Nota: `set_user_plane_token` ahora verifica si el token ya existe para el `user_id`. Si ya existe, no exige reenviarlo.
