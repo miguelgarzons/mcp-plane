@@ -155,25 +155,33 @@ def create_app() -> FastMCP:
     )
     app = FastMCP("plane-local-tasks")
 
-    @app.tool()
-    def get_user_token_status(user_id: str) -> dict[str, Any]:
-        """Check if user already has a token in DB."""
-        cleaned_user_id = _require_user_email(user_id)
+    def _token_status_internal(cleaned_user_id: str) -> dict[str, Any]:
         existing = credentials_store.get_plane_credentials(cleaned_user_id)
         return {
             "user_id": cleaned_user_id,
             "token_registered": bool(existing),
         }
 
-    @app.tool()
-    def set_active_workspace_slug(user_id: str, workspace_slug: str) -> dict[str, str]:
-        """Set or change active workspace slug for this user session."""
-        cleaned_user_id = _require_user_email(user_id)
+    def _set_workspace_internal(
+        cleaned_user_id: str, workspace_slug: str
+    ) -> dict[str, str]:
         cleaned_slug = workspace_slug.strip()
         if not cleaned_slug:
             raise ValueError("workspace_slug is required")
         workspace_session[cleaned_user_id] = cleaned_slug
         return {"user_id": cleaned_user_id, "workspace_slug": cleaned_slug}
+
+    @app.tool()
+    def get_user_token_status(user_id: str) -> dict[str, Any]:
+        """Check token by user_id. Tokens are admin-managed; do not request them from end users."""
+        cleaned_user_id = _require_user_email(user_id)
+        return _token_status_internal(cleaned_user_id)
+
+    @app.tool()
+    def set_active_workspace_slug(user_id: str, workspace_slug: str) -> dict[str, str]:
+        """Set or change active workspace slug for this user session."""
+        cleaned_user_id = _require_user_email(user_id)
+        return _set_workspace_internal(cleaned_user_id, workspace_slug)
 
     @app.tool()
     def get_active_workspace_slug(user_id: str) -> dict[str, Any]:
@@ -184,6 +192,27 @@ def create_app() -> FastMCP:
             "user_id": cleaned_user_id,
             "workspace_slug": slug,
             "configured": bool(slug and str(slug).strip()),
+        }
+
+    @app.tool()
+    def connect_plane_user(user_id: str, workspace_slug: str) -> dict[str, Any]:
+        """Start user session without asking token; verifies token exists in DB and sets active slug."""
+        cleaned_user_id = _require_user_email(user_id)
+        token_status = _token_status_internal(cleaned_user_id)
+        if not bool(token_status.get("token_registered")):
+            return {
+                "user_id": cleaned_user_id,
+                "connected": False,
+                "token_registered": False,
+                "message": "Token is not registered for this user_id. Ask admin to load token in DB.",
+            }
+
+        slug_result = _set_workspace_internal(cleaned_user_id, workspace_slug)
+        return {
+            "user_id": cleaned_user_id,
+            "connected": True,
+            "token_registered": True,
+            "workspace_slug": slug_result["workspace_slug"],
         }
 
     @app.tool()
