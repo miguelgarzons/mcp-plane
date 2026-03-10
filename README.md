@@ -6,7 +6,8 @@ Servidor MCP en Python para operar tareas de Plane.
 
 - Las credenciales por usuario se guardan en PostgreSQL.
 - Solo necesitas enviar `user_id` en las tools de tareas (`user_id` debe ser correo).
-- El token de Plane se registra una vez por usuario con `set_user_plane_token`.
+- El token de Plane se registra por usuario con `set_user_plane_token(user_id, plane_api_token)`.
+- El `workspace_slug` llega dinamico en cada llamada (igual que `project_id`), no se guarda en DB.
 - `PLANE_PROJECT_ID` no se usa; el proyecto se resuelve dinamicamente desde Plane.
 - Si el usuario tiene varios proyectos, debe enviar `project_id` en la tool para elegirlo dinamicamente.
 
@@ -50,7 +51,7 @@ python server.py
 
 1. Registrar token por usuario:
    - `set_user_plane_token(user_id, plane_api_token)`
-2. Trabajar tareas usando solo `user_id`.
+2. Trabajar tareas enviando `user_id` y `workspace_slug` (y `project_id` cuando aplique).
 
 ## Tools de credenciales
 
@@ -61,4 +62,5 @@ python server.py
 ## Tools de tareas
 
 Todas las tools de tareas aceptan `user_id` para resolver el token desde DB.
+Las tools tambien aceptan `workspace_slug` dinamico por llamada.
 Las tools que operan sobre issues/proyecto aceptan `project_id` opcional. Si hay multiples proyectos, enviarlo es obligatorio.

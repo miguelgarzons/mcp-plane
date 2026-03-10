@@ -77,7 +77,6 @@ class CredentialStore:
         cleaned_token = api_token.strip()
         if not cleaned_token:
             raise ValueError("plane_api_token is required")
-
         with self._connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
