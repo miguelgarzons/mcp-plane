@@ -58,6 +58,7 @@ python server.py
 ## Tools de credenciales
 
 - `set_user_plane_token(user_id, plane_api_token)`
+- `get_user_token_status(user_id)`
 - `set_active_workspace_slug(user_id, workspace_slug)`
 - `get_active_workspace_slug(user_id)`
 - `delete_user_plane_token(user_id)`
@@ -69,3 +70,5 @@ Todas las tools de tareas aceptan `user_id` para resolver el token desde DB.
 Las tools tambien aceptan `workspace_slug` dinamico por llamada.
 Si no envias `workspace_slug`, se usa el slug activo de la sesion del usuario.
 Las tools que operan sobre issues/proyecto aceptan `project_id` opcional. Si hay multiples proyectos, enviarlo es obligatorio.
+
+Nota: `set_user_plane_token` ahora verifica si el token ya existe para el `user_id`. Si ya existe, no exige reenviarlo.

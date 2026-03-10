@@ -153,20 +153,53 @@ def create_app() -> FastMCP:
     @app.tool()
     def set_user_plane_token(
         user_id: str,
-        plane_api_token: str,
-    ) -> dict[str, str]:
+        plane_api_token: str | None = None,
+    ) -> dict[str, Any]:
         """Store or update Plane API token for a user in PostgreSQL."""
         cleaned_user_id = _require_user_email(user_id)
+        existing = credentials_store.get_plane_credentials(cleaned_user_id)
+        cleaned_token = (
+            plane_api_token.strip() if isinstance(plane_api_token, str) else ""
+        )
+
+        if existing and not cleaned_token:
+            return {
+                "user_id": cleaned_user_id,
+                "token_registered": True,
+                "updated": False,
+                "message": "Token already registered. No update was needed.",
+            }
+
+        if not cleaned_token:
+            raise ValueError(
+                f"No token found for user_id={cleaned_user_id}. "
+                "Send plane_api_token once to register it."
+            )
+
         saved = credentials_store.upsert_plane_credentials(
             user_id=cleaned_user_id,
-            api_token=plane_api_token,
+            api_token=cleaned_token,
         )
         stale_keys = [
             key for key in service_cache if key.startswith(f"{cleaned_user_id}|")
         ]
         for key in stale_keys:
             service_cache.pop(key, None)
-        return saved
+        return {
+            "user_id": saved["user_id"],
+            "token_registered": True,
+            "updated": bool(existing),
+        }
+
+    @app.tool()
+    def get_user_token_status(user_id: str) -> dict[str, Any]:
+        """Check if user already has a token in DB."""
+        cleaned_user_id = _require_user_email(user_id)
+        existing = credentials_store.get_plane_credentials(cleaned_user_id)
+        return {
+            "user_id": cleaned_user_id,
+            "token_registered": bool(existing),
+        }
 
     @app.tool()
     def set_active_workspace_slug(user_id: str, workspace_slug: str) -> dict[str, str]:
