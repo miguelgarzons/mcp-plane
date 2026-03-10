@@ -150,12 +150,10 @@ def create_app() -> FastMCP:
     )
     app = FastMCP("plane-local-tasks")
 
-    @app.tool()
-    def set_user_plane_token(
-        user_id: str,
+    def _ensure_token_internal(
+        user_id: str = "",
         plane_api_token: str | None = None,
     ) -> dict[str, Any]:
-        """Store or update Plane API token for a user in PostgreSQL."""
         cleaned_user_id = _require_user_email(user_id)
         existing = credentials_store.get_plane_credentials(cleaned_user_id)
         cleaned_token = (
@@ -192,6 +190,17 @@ def create_app() -> FastMCP:
         }
 
     @app.tool()
+    def set_user_plane_token(
+        user_id: str = "",
+        plane_api_token: str | None = None,
+    ) -> dict[str, Any]:
+        """Store or update Plane API token for a user in PostgreSQL."""
+        return _ensure_token_internal(
+            user_id=user_id,
+            plane_api_token=plane_api_token,
+        )
+
+    @app.tool()
     def get_user_token_status(user_id: str) -> dict[str, Any]:
         """Check if user already has a token in DB."""
         cleaned_user_id = _require_user_email(user_id)
@@ -200,6 +209,17 @@ def create_app() -> FastMCP:
             "user_id": cleaned_user_id,
             "token_registered": bool(existing),
         }
+
+    @app.tool()
+    def ensure_user_plane_token(
+        user_id: str = "",
+        plane_api_token: str | None = None,
+    ) -> dict[str, Any]:
+        """Verify token first; register/update only when needed."""
+        return _ensure_token_internal(
+            user_id=user_id,
+            plane_api_token=plane_api_token,
+        )
 
     @app.tool()
     def set_active_workspace_slug(user_id: str, workspace_slug: str) -> dict[str, str]:
@@ -254,7 +274,7 @@ def create_app() -> FastMCP:
         due_date: str | None = None,
         project_id: str | None = None,
         workspace_slug: str | None = None,
-        user_id: str | None = None,
+        user_id: str = "",
     ) -> dict[str, Any]:
         """Create a task in Plane. Dates should use YYYY-MM-DD format."""
         service = resolve_service(user_id, workspace_slug)
@@ -285,7 +305,7 @@ def create_app() -> FastMCP:
         page_size: int = 20,
         project_id: str | None = None,
         workspace_slug: str | None = None,
-        user_id: str | None = None,
+        user_id: str = "",
     ) -> list[dict[str, Any]]:
         """List tasks from Plane."""
         service = resolve_service(user_id, workspace_slug)
@@ -307,7 +327,7 @@ def create_app() -> FastMCP:
         page_size: int = 20,
         project_id: str | None = None,
         workspace_slug: str | None = None,
-        user_id: str | None = None,
+        user_id: str = "",
     ) -> dict[str, Any]:
         """List tasks with cursor pagination metadata."""
         service = resolve_service(user_id, workspace_slug)
@@ -325,7 +345,7 @@ def create_app() -> FastMCP:
         task_id: str,
         project_id: str | None = None,
         workspace_slug: str | None = None,
-        user_id: str | None = None,
+        user_id: str = "",
     ) -> dict[str, Any]:
         """Get one task by id from Plane."""
         service = resolve_service(user_id, workspace_slug)
@@ -338,7 +358,7 @@ def create_app() -> FastMCP:
         actor: str = "mcp-bot",
         project_id: str | None = None,
         workspace_slug: str | None = None,
-        user_id: str | None = None,
+        user_id: str = "",
     ) -> dict[str, Any]:
         """Update task status in Plane."""
         service = resolve_service(user_id, workspace_slug)
@@ -357,7 +377,7 @@ def create_app() -> FastMCP:
         actor: str = "mcp-bot",
         project_id: str | None = None,
         workspace_slug: str | None = None,
-        user_id: str | None = None,
+        user_id: str = "",
     ) -> dict[str, Any]:
         """Update task start/due dates in Plane. Dates should use YYYY-MM-DD format."""
         service = resolve_service(user_id, workspace_slug)
@@ -376,7 +396,7 @@ def create_app() -> FastMCP:
         actor: str = "mcp-bot",
         project_id: str | None = None,
         workspace_slug: str | None = None,
-        user_id: str | None = None,
+        user_id: str = "",
     ) -> dict[str, Any]:
         """Assign a task in Plane."""
         service = resolve_service(user_id, workspace_slug)
@@ -395,7 +415,7 @@ def create_app() -> FastMCP:
         actor: str = "mcp-bot",
         project_id: str | None = None,
         workspace_slug: str | None = None,
-        user_id: str | None = None,
+        user_id: str = "",
     ) -> dict[str, Any]:
         """Assign a task manually to a selected Plane user (email only)."""
         service = resolve_service(user_id, workspace_slug)
@@ -414,7 +434,7 @@ def create_app() -> FastMCP:
         author: str = "mcp-bot",
         project_id: str | None = None,
         workspace_slug: str | None = None,
-        user_id: str | None = None,
+        user_id: str = "",
     ) -> dict[str, Any]:
         """Add a comment to a task in Plane."""
         service = resolve_service(user_id, workspace_slug)
@@ -432,7 +452,7 @@ def create_app() -> FastMCP:
         cursor: str | None = None,
         project_id: str | None = None,
         workspace_slug: str | None = None,
-        user_id: str | None = None,
+        user_id: str = "",
     ) -> dict[str, Any]:
         """List comments of a task with pagination metadata."""
         service = resolve_service(user_id, workspace_slug)
@@ -449,7 +469,7 @@ def create_app() -> FastMCP:
         actor: str = "mcp-bot",
         project_id: str | None = None,
         workspace_slug: str | None = None,
-        user_id: str | None = None,
+        user_id: str = "",
     ) -> dict[str, Any]:
         """Delete a task in Plane."""
         service = resolve_service(user_id, workspace_slug)
@@ -460,7 +480,7 @@ def create_app() -> FastMCP:
         text: str,
         actor: str = "mcp-bot",
         workspace_slug: str | None = None,
-        user_id: str | None = None,
+        user_id: str = "",
     ) -> dict[str, Any]:
         """Update tasks using simple Spanish natural language commands."""
         service = resolve_service(user_id, workspace_slug)
@@ -471,7 +491,7 @@ def create_app() -> FastMCP:
     def list_plane_states(
         project_id: str | None = None,
         workspace_slug: str | None = None,
-        user_id: str | None = None,
+        user_id: str = "",
     ) -> list[dict[str, Any]]:
         """List available states configured in Plane project."""
         service = resolve_service(user_id, workspace_slug)
@@ -481,7 +501,7 @@ def create_app() -> FastMCP:
     def list_plane_projects(
         limit: int = 200,
         workspace_slug: str | None = None,
-        user_id: str | None = None,
+        user_id: str = "",
     ) -> list[dict[str, Any]]:
         """List projects available in Plane workspace for current user."""
         service = resolve_service(user_id, workspace_slug)
@@ -491,7 +511,7 @@ def create_app() -> FastMCP:
     def list_plane_members(
         limit: int = 200,
         workspace_slug: str | None = None,
-        user_id: str | None = None,
+        user_id: str = "",
     ) -> list[dict[str, Any]]:
         """List workspace members that can be assigned."""
         service = resolve_service(user_id, workspace_slug)
@@ -502,7 +522,7 @@ def create_app() -> FastMCP:
         query: str | None = None,
         limit: int = 200,
         workspace_slug: str | None = None,
-        user_id: str | None = None,
+        user_id: str = "",
     ) -> list[dict[str, Any]]:
         """List/filter workspace Plane users (not restricted by project membership)."""
         service = resolve_service(user_id, workspace_slug)
@@ -514,7 +534,7 @@ def create_app() -> FastMCP:
         limit: int = 200,
         project_id: str | None = None,
         workspace_slug: str | None = None,
-        user_id: str | None = None,
+        user_id: str = "",
     ) -> dict[str, Any]:
         """List users that belong to a project and can be assigned."""
         service = resolve_service(user_id, workspace_slug)
@@ -539,7 +559,7 @@ def create_app() -> FastMCP:
         limit: int = 200,
         project_id: str | None = None,
         workspace_slug: str | None = None,
-        user_id: str | None = None,
+        user_id: str = "",
     ) -> list[dict[str, Any]]:
         """List labels available in Plane project."""
         service = resolve_service(user_id, workspace_slug)
@@ -551,7 +571,7 @@ def create_app() -> FastMCP:
         color: str | None = None,
         project_id: str | None = None,
         workspace_slug: str | None = None,
-        user_id: str | None = None,
+        user_id: str = "",
     ) -> dict[str, Any]:
         """Create a new label in Plane project."""
         service = resolve_service(user_id, workspace_slug)
@@ -564,7 +584,7 @@ def create_app() -> FastMCP:
         label_names: list[str] | None = None,
         project_id: str | None = None,
         workspace_slug: str | None = None,
-        user_id: str | None = None,
+        user_id: str = "",
     ) -> dict[str, Any]:
         """Set labels for a task by IDs or names."""
         service = resolve_service(user_id, workspace_slug)
@@ -580,7 +600,7 @@ def create_app() -> FastMCP:
         limit: int = 200,
         project_id: str | None = None,
         workspace_slug: str | None = None,
-        user_id: str | None = None,
+        user_id: str = "",
     ) -> list[dict[str, Any]]:
         """List cycles/sprints in Plane project."""
         service = resolve_service(user_id, workspace_slug)
@@ -592,7 +612,7 @@ def create_app() -> FastMCP:
         cycle_id: str | None = None,
         project_id: str | None = None,
         workspace_slug: str | None = None,
-        user_id: str | None = None,
+        user_id: str = "",
     ) -> dict[str, Any]:
         """Set or clear cycle/sprint for a task."""
         service = resolve_service(user_id, workspace_slug)
@@ -614,7 +634,7 @@ def create_app() -> FastMCP:
         limit: int = 50,
         project_id: str | None = None,
         workspace_slug: str | None = None,
-        user_id: str | None = None,
+        user_id: str = "",
     ) -> list[dict[str, Any]]:
         """Search tasks by text, status, assignee and date ranges."""
         service = resolve_service(user_id, workspace_slug)
@@ -640,7 +660,7 @@ def create_app() -> FastMCP:
         label_ids: list[str] | None = None,
         project_id: str | None = None,
         workspace_slug: str | None = None,
-        user_id: str | None = None,
+        user_id: str = "",
     ) -> dict[str, Any]:
         """Bulk update tasks in Plane (status, assignee, dates, labels)."""
         service = resolve_service(user_id, workspace_slug)
@@ -663,7 +683,7 @@ def create_app() -> FastMCP:
         include_unlabeled: bool = True,
         project_id: str | None = None,
         workspace_slug: str | None = None,
-        user_id: str | None = None,
+        user_id: str = "",
     ) -> dict[str, Any]:
         """Generate label usage report across tasks."""
         service = resolve_service(user_id, workspace_slug)
@@ -680,7 +700,7 @@ def create_app() -> FastMCP:
     def plane_agent(
         command: str,
         workspace_slug: str | None = None,
-        user_id: str | None = None,
+        user_id: str = "",
         actor: str = "mcp-bot",
     ) -> dict[str, Any]:
         """Natural-language agent router for task operations."""
